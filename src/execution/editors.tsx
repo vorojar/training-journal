@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   assessmentFields,
@@ -26,6 +26,7 @@ import {
   numberValue,
   weekdays,
 } from "./ui";
+import { EditorNavigationContext } from "./hash-navigation";
 type Save = (s: System) => Promise<void>;
 function Editor({
   title,
@@ -42,25 +43,33 @@ function Editor({
   label?: string;
   extra?: ReactNode;
 }) {
+  const guard = useContext(EditorNavigationContext);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   return (
-    <Modal
-      title={title}
-      onClose={() => {
-        if (!busy && confirm("关闭填写窗口？尚未保存的修改将不会保留。"))
-          onClose();
-      }}
-    >
+    <Modal title={title} onClose={onClose}>
       <form
+        onChangeCapture={() => guard.setDirty(true)}
+        onClickCapture={(e) => {
+          if ((e.target as Element).closest('button[type="button"]'))
+            guard.setDirty(true);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
+          guard.setSaving(true);
           setError("");
           void onSave()
-            .then(onClose)
+            .then(() => {
+              guard.setDirty(false);
+              guard.setSaving(false);
+              onClose();
+            })
             .catch((e) => setError(e.message || "保存失败，填写内容仍保留"))
-            .finally(() => setBusy(false));
+            .finally(() => {
+              guard.setSaving(false);
+              setBusy(false);
+            });
         }}
       >
         <div className="form-content">

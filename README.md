@@ -25,3 +25,11 @@ React 19 + Vite 8 + TypeScript，发布至 GitHub Pages。界面参考用户提�
 新版系统采用单记录版本检查，在同一 IndexedDB 事务内保存方案与日历。跨窗口发生并发修改时拒绝过期写入并保留表单，避免覆盖。重复同一结果提交具有幂等性；已完成课次保留独立动作快照。输入和备份通过 Zod 校验。
 
 Node.js 24，`npm ci` 后运行 `npm run dev`。`npm run check` 检查类型，`npm test` 验证跨月排程、发布前置条件、历史快照、复查重排、日期和链接、旧数据迁移、备份、并发及幂等性，`npm run build` 构建。推送 main 后 GitHub Actions 运行上述检查并部署。
+
+## 页面地址与分享
+
+页面采用 Hash 路由：`#overview`、`#assessment`、`#plans`、`#calendar`、`#daily`、`#reviews`、`#settings`。业务填写窗口也有地址，例如 `#assessment/problem/new`、`#daily/entry/<id>`、`#plans/plan/<id>/adjust?review=<id>`。日历在片段参数中保存月份与选中日期。刷新、前进和后退恢复相应页面/窗口；未保存修改会显示保留提示，保存后关闭回到原页面。已存在的记录在原浏览器才可打开；缺少本地编号时返回对应页面并提示，不会误建空记录。
+
+静态HTML的head中包含Open Graph、X/Twitter大图卡片、canonical、标题、描述、绝对图片地址及实际图片尺寸。图片为公开的 `social-preview-v1.png`，不含个人资料，来源为内置Image Gen生成并人工检查的品牌分享图。元数据无需运行JavaScript即可读取。所有Hash路由共用相同分享预览；分享链接保留页面位置，健康记录仍只在浏览器本地。
+
+标签依据 [Open Graph协议](https://ogp.me/)；X沿用 `twitter:*` 标签及 `summary_large_image`，也核对了 [X官方文档站](https://docs.x.com/overview) 当前HTML中的同类标记。未代用户发布X帖子。

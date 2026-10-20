@@ -24,14 +24,7 @@ import {
   type Plan,
 } from "./domain";
 import { Badge, Button, Empty, LinkButton, Section, weekdays } from "./ui";
-export type Edit =
-  | { type: "profile" }
-  | { type: "assessment" }
-  | { type: "problem"; id?: string }
-  | { type: "plan"; id?: string; adjust?: boolean; reviewId?: string }
-  | { type: "session"; id: string }
-  | { type: "daily"; id?: string }
-  | { type: "review" };
+import type { Edit, CalendarLocation } from "./routes";
 export type ScreenProps = {
   s: System;
   edit: (v: Edit) => void;
@@ -741,10 +734,20 @@ export function PlanScreen({ s, edit, go }: ScreenProps) {
     </>
   );
 }
-export function CalendarScreen({ s, edit, go }: ScreenProps) {
-  const [month, setMonth] = useState(today().slice(0, 7)),
-    [selected, setSelected] = useState(today()),
-    [showCancelled, setShow] = useState(false);
+export function CalendarScreen({
+  s,
+  edit,
+  go,
+  calendar,
+  setCalendar,
+}: ScreenProps & {
+  calendar: CalendarLocation;
+  setCalendar: (value: CalendarLocation) => void;
+}) {
+  const { month, date: selected } = calendar;
+  const [showCancelled, setShow] = useState(false);
+  const setMonth = (month: string) => setCalendar({ ...calendar, month });
+  const setSelected = (date: string) => setCalendar({ ...calendar, date });
   const start = month + "-01",
     offset = (new Date(start + "T00:00:00Z").getUTCDay() + 6) % 7;
   const visible = s.sessions.filter(
@@ -784,8 +787,7 @@ export function CalendarScreen({ s, edit, go }: ScreenProps) {
             <Button
               secondary
               onClick={() => {
-                setMonth(today().slice(0, 7));
-                setSelected(today());
+                setCalendar({ month: today().slice(0, 7), date: today() });
               }}
             >
               今天
