@@ -709,14 +709,112 @@ export function SessionEditor({
   session,
   save,
   close,
+  coachMode = false,
 }: {
   s: System;
   session: Session;
+  coachMode?: boolean;
   save: Save;
   close: () => void;
 }) {
   const [v, set] = useState(structuredClone(session));
   const [error, setError] = useState("");
+  const details = (
+    <>
+      <div className="callout">
+        方案 v{v.planVersion} · {v.time} · {v.minutes} 分钟
+        <p>{v.cautions || "教练尚未补充专属注意事项"}</p>
+      </div>
+      {v.exercises.map((e, i) => (
+        <article className="action-detail" key={e.id}>
+          <h3>
+            {i + 1}. {e.name}
+          </h3>
+          <div className="dose">
+            {e.sets} 组 · {e.reps} · {e.load} · 休息 {e.rest}
+          </div>
+          <p>{e.method}</p>
+          {e.tempo && <p>节奏：{e.tempo}</p>}
+          {e.cautions && <p className="amber-text">注意：{e.cautions}</p>}
+          {e.alternative && <p>替代动作：{e.alternative}</p>}
+          {e.video && (
+            <a href={e.video} target="_blank" rel="noreferrer">
+              查看示范视频
+            </a>
+          )}
+        </article>
+      ))}
+    </>
+  );
+  if (coachMode) {
+    const content = (
+      <>
+        {details}
+        <dl>
+          <div>
+            <dt>完成情况</dt>
+            <dd>{v.status}</dd>
+          </div>
+          <div>
+            <dt>实际完成</dt>
+            <dd>{v.actual || "学员尚未填写"}</dd>
+          </div>
+          <div>
+            <dt>费力程度</dt>
+            <dd>{v.effort ?? "尚未填写"}</dd>
+          </div>
+          <div>
+            <dt>训练反应</dt>
+            <dd>{v.symptoms || "学员尚未填写"}</dd>
+          </div>
+          <div>
+            <dt>次日恢复</dt>
+            <dd>{v.nextDay || "学员尚未填写"}</dd>
+          </div>
+        </dl>
+        <p className="muted">
+          实际训练情况由学员本人填写。教练可以调整待完成课次的日期和时间；方案内容请通过“复查调整”修改。
+        </p>
+      </>
+    );
+    if (v.status !== "待完成")
+      return (
+        <Modal title={`${v.date} · ${v.title}`} onClose={close}>
+          <div className="form-content">{content}</div>
+        </Modal>
+      );
+    return (
+      <Editor
+        title={`调整课次 · ${v.title}`}
+        onClose={close}
+        onSave={async () => {
+          if (v.date < today()) throw new Error("请将课次安排在今天或未来");
+          await save({
+            ...s,
+            sessions: s.sessions.map((x) => (x.id === v.id ? v : x)),
+          });
+        }}
+      >
+        {content}
+        <div className="form-grid">
+          <Input
+            label="训练日期"
+            type="date"
+            required
+            value={v.date}
+            onChange={(date) => set({ ...v, date })}
+          />
+          <Input
+            label="训练时间"
+            type="time"
+            required
+            value={v.time}
+            onChange={(time) => set({ ...v, time })}
+          />
+        </div>
+      </Editor>
+    );
+  }
   return (
     <Editor
       title={`${v.date} · ${v.title}`}
@@ -744,29 +842,7 @@ export function SessionEditor({
         });
       }}
     >
-      <div className="callout">
-        方案 v{v.planVersion} · {v.time} · {v.minutes} 分钟
-        <p>{v.cautions || "教练尚未补充专属注意事项"}</p>
-      </div>
-      {v.exercises.map((e, i) => (
-        <article className="action-detail" key={e.id}>
-          <h3>
-            {i + 1}. {e.name}
-          </h3>
-          <div className="dose">
-            {e.sets} 组 · {e.reps} · {e.load} · 休息 {e.rest}
-          </div>
-          <p>{e.method}</p>
-          {e.tempo && <p>节奏：{e.tempo}</p>}
-          {e.cautions && <p className="amber-text">注意：{e.cautions}</p>}
-          {e.alternative && <p>替代动作：{e.alternative}</p>}
-          {e.video && (
-            <a href={e.video} target="_blank" rel="noreferrer">
-              查看示范视频
-            </a>
-          )}
-        </article>
-      ))}
+      {details}
       <div className="form-grid">
         <Select
           label="完成情况"

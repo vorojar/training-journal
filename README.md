@@ -1,6 +1,6 @@
 # 循序 · 个人健身计划执行系统
 
-React 19 + Vite 8 + TypeScript，发布至 GitHub Pages。界面参考用户提供的视频，采用白灰工作台、细导航与蓝色交互强调，适配电脑和手机。
+React 19 + Vite 8 + TypeScript。云端 SaaS 部署于 https://fitness.bibidu.com/（Cloudflare Workers + D1 + Better Auth）；GitHub Pages 保留原浏览器版和迁移入口。界面参考用户提供的视频，采用白灰工作台、细导航与蓝色交互强调，适配电脑和手机。
 
 ## 使用流程
 
@@ -16,20 +16,33 @@ React 19 + Vite 8 + TypeScript，发布至 GitHub Pages。界面参考用户提�
 
 ## 数据与隐私
 
-个人健康资料存入当前浏览器的 IndexedDB，数据库沿用原版名称，已有记录不删除。首次使用新版时迁移原版个人资料、问题、评估与每日身体记录；未被结构化迁移的训练/复查/调整笔记仍在“资料与备份”的原版资料中可查，并随完整备份导出。原表的程度描述保留为待核实依据，不自动变成已核实等级。
+云端支持公开邮箱＋密码注册，每个账号自动创建一个隔离的个人空间。账号在手机和电脑登录后共用云端资料；保存即时写入，其他页面每20秒及重新聚焦时同步，也可手动同步。切换学员会清除旧空间显示并重新取数。离线时保存报错并保留当前表单，不提供离线队列。
 
-网站代码公开；默认模板不包含用户病史或实际测量。网站不向 GitHub 上传记录，不包含第三方统计。不同设备不自动同步；更换设备或清理网站数据前导出JSON备份，另一设备可导入。同编号保留当前版本，不覆盖。教练目前与用户在同一设备共同填写；备份用于迁移到新浏览器，不支持双向合并，没有远程教练账号。米家、Apple Watch 仅列出未来接入方向，当前未连接设备。
+教练需要学员向指定邮箱生成48小时邀请链接，接受后仍需学员确认授权。教练可填写评估、问题、方案、复查及后续排期，可以查看当前身体指标；本人资料、每日测量和实际完成由本人填写。教练可同时获得多个学员授权，通过空间选择器切换。撤销后所有服务端读写立即拒绝。账号、邀请、成员和文档权限均在服务端检查，不能仅靠修改前端空间编号访问他人数据。
+
+邮箱目前只作为登录标识，尚未启用邮件验证、邮件找回或自动发邀请邮件，请保存好密码并通过已知联系方式核对教练身份。链接由用户自行发送，不向真实教练自动发信。米家和 Apple Watch 当前尚未接入。
+
+旧站仍使用原 IndexedDB。先在原浏览器的“资料与备份”导出完整 JSON，再在云端自己的空间导入，核对并确认替换。旧版原始记录也存入云端并随备份导出。导入不会删除旧站资料。云端代码、静态模板及分享图不包含实际个人健康资料；登录会话使用 HttpOnly/Secure/SameSite cookie，邀请只保存 token 的 SHA-256。
 
 ## 一致性与验证
 
-新版系统采用单记录版本检查，在同一 IndexedDB 事务内保存方案与日历。跨窗口发生并发修改时拒绝过期写入并保留表单，避免覆盖。重复同一结果提交具有幂等性；已完成课次保留独立动作快照。输入和备份通过 Zod 校验。
+云端使用 D1 的条件版本更新和原子 batch 同时保存文档与版本历史，写入权在更新 SQL 中再次检查。请求编号、请求内容和操作人绑定，重复请求返回同一结果；同一编号更换内容或账号会被拒绝。不同设备并发写入只允许一个成功，另一个保留表单提示冲突。原浏览器版在同一 IndexedDB 事务内保存方案与日历。跨窗口发生并发修改时拒绝过期写入并保留表单，避免覆盖。重复同一结果提交具有幂等性；已完成课次保留独立动作快照。输入和备份通过 Zod 校验。
 
 Node.js 24，`npm ci` 后运行 `npm run dev`。`npm run check` 检查类型，`npm test` 验证跨月排程、发布前置条件、历史快照、复查重排、日期和链接、旧数据迁移、备份、并发及幂等性，`npm run build` 构建。推送 main 后 GitHub Actions 运行上述检查并部署。
 
 ## 页面地址与分享
 
-页面采用 Hash 路由：`#overview`、`#assessment`、`#plans`、`#calendar`、`#daily`、`#reviews`、`#settings`。业务填写窗口也有地址，例如 `#assessment/problem/new`、`#daily/entry/<id>`、`#plans/plan/<id>/adjust?review=<id>`。日历在片段参数中保存月份与选中日期。刷新、前进和后退恢复相应页面/窗口；未保存修改会显示保留提示，保存后关闭回到原页面。已存在的记录在原浏览器才可打开；缺少本地编号时返回对应页面并提示，不会误建空记录。
+页面采用 Hash 路由：`#overview`、`#assessment`、`#plans`、`#calendar`、`#daily`、`#reviews`、`#settings`。业务填写窗口也有地址，例如 `#assessment/problem/new`、`#daily/entry/<id>`、`#plans/plan/<id>/adjust?review=<id>`。日历在片段参数中保存月份与选中日期。刷新、前进和后退恢复相应页面/窗口；未保存修改会显示保留提示，保存后关闭回到原页面。云端记录在有权限的当前空间打开；缺少编号时返回对应页面并提示，不会误建空记录。登录和注册入口使用 `#login`、`#signup`。
 
-静态HTML的head中包含Open Graph、X/Twitter大图卡片、canonical、标题、描述、绝对图片地址及实际图片尺寸。图片为公开的 `social-preview-v1.png`，不含个人资料，来源为内置Image Gen生成并人工检查的品牌分享图。元数据无需运行JavaScript即可读取。所有Hash路由共用相同分享预览；分享链接保留页面位置，健康记录仍只在浏览器本地。
+静态HTML的head中包含Open Graph、X/Twitter大图卡片、canonical、标题、描述、绝对图片地址及实际图片尺寸。图片为公开的 `social-preview-v1.png`，不含个人资料，来源为内置Image Gen生成并人工检查的品牌分享图。元数据无需运行JavaScript即可读取。所有Hash路由共用相同分享预览；分享链接保留页面位置，分享地址不授予访问健康资料的权限。云端构建会将 canonical、OG 和 X 图片链接替换为正式域名。
 
 标签依据 [Open Graph协议](https://ogp.me/)；X沿用 `twitter:*` 标签及 `summary_large_image`，也核对了 [X官方文档站](https://docs.x.com/overview) 当前HTML中的同类标记。未代用户发布X帖子。
+
+## 云端开发与部署
+
+- 安装：Node.js 24，`npm ci`。复制 `.dev.vars.example` 为 `.dev.vars` 并本地生成随机 secret；该文件不能提交。
+- 本地数据库：`npx wrangler d1 migrations apply fitness-saas-db --local`。先 `npm run build:cloud`，再 `npm run dev:cloud`（本地独立配置避免自定义域名改写 Origin）。
+- 验证：`npm run check`、`npm test`；运行中的本地服务使用 `node scripts/test-cloud.mjs` 验证真实注册、隔离、邀请审批、角色、幂等、并发、同步和撤权。测试仅生成虚构的 example.invalid 账号，不发邮件。若需在线验收，显式设置 `TEST_URL=https://fitness.bibidu.com`。不要将测试凭据或实际备份写入公共仓库。
+- 生产：先 `npx wrangler d1 migrations apply fitness-saas-db --remote`；首次设置 `BETTER_AUTH_SECRET`（随机至少32字节）后 `npm run deploy:cloud`。后续部署不要轮换 secret，否则已有会话失效。
+- `wrangler.jsonc` 为云端生产配置，由 Custom Domain 管理 fitness.bibidu.com 的 DNS/HTTPS，不影响同域其他站点。GitHub Actions 验证两种构建，但仅自动部署旧站；云端使用已登录的 Cloudflare CLI 发布，不在 GitHub 存放个人 OAuth 凭据。
+- 完整文档版本历史存于 D1；界面显示最近50次修改。默认未配置自动邮件、设备接入、收费、管理后台或数据恢复 UI。

@@ -54,6 +54,12 @@ import {
   type Edit,
 } from "./routes";
 import { EditorNavigationContext, useHashNavigation } from "./hash-navigation";
+import CloudAccount from "../cloud/account";
+import {
+  send,
+  type CloudConnection,
+  type CloudDocument,
+} from "../cloud/client";
 const navigationItems = [
   ["我的总览", Home],
   ["训练前评估", ClipboardCheck],
@@ -63,7 +69,11 @@ const navigationItems = [
   ["复查与调整", RefreshCcw],
 ] as const;
 type Editing = { key: string; edit: Edit; snapshot: System; version: number };
-export default function App() {
+export default function App({ cloud }: { cloud?: CloudConnection }) {
+  const pendingMutation = useRef<{ key: string; id: string } | null>(null);
+  const [pendingImport, setPendingImport] = useState<SavedRecord[] | null>(
+    null,
+  );
   const [records, setRecords] = useState<SavedRecord[]>([]),
     [s, setS] = useState<System>(emptySystem),
     [loading, setLoading] = useState(true),
@@ -92,6 +102,7 @@ export default function App() {
   const file = useRef<HTMLInputElement>(null),
     channel = useRef<BroadcastChannel | null>(null);
   const load = useCallback(async () => {
+    if (cloud) return cloud.refresh();
     try {
       const r = await readRecords();
       const state = r.find((x) => x.id === "execution-system" && !x.deleted);
@@ -105,6 +116,7 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
+    if (cloud) return;
     void load();
     if ("BroadcastChannel" in window) {
       channel.current = new BroadcastChannel("steady-training-journal");
@@ -112,6 +124,39 @@ export default function App() {
     }
     return () => channel.current?.close();
   }, [load]);
+  useEffect(() => {
+    if (!cloud) return;
+    setS(cloud.document.payload);
+    setRecords([
+      ...(cloud.document.legacy || []),
+      {
+        id: "execution-system",
+        kind: "system",
+        payload: cloud.document.payload,
+        version: cloud.document.version,
+        deleted: 0,
+        updatedAt: cloud.document.updated_at,
+      },
+    ]);
+    setLoading(false);
+    setError("");
+  }, [cloud?.document]);
+  function blocked(e: Edit) {
+    return (
+      cloud?.space.role === "coach" && ["profile", "daily"].includes(e.type)
+    );
+  }
+  function guarded(action: () => void) {
+    if (saving.current) {
+      setNotice("正在保存，请稍候");
+      return;
+    }
+    if (dirty.current) {
+      setLeave(() => action);
+      return;
+    }
+    action();
+  }
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 7000);
@@ -127,11 +172,19 @@ export default function App() {
       return;
     }
     if (editing?.key === key) return;
+    if (blocked(route.edit)) {
+      setNotice("此项由学员本人填写，教练可以查看并制定训练安排");
+      navigation.navigate(
+        { ...route, edit: undefined },
+        { replace: true, skipGuard: true },
+      );
+      return;
+    }
     const missing = missingTarget(s, route.edit);
     if (missing) {
       setNotice(
         missing +
-          "，已返回对应页面。记录仅保存在原浏览器，链接不会携带健康数据。",
+          "，已返回对应页面。请确认当前健身空间，链接不会携带健康数据。",
       );
       navigation.navigate(
         { ...route, edit: undefined },
@@ -156,6 +209,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   function edit(value: Edit) {
+    if (blocked(value)) {
+      setNotice("此项由学员本人填写");
+      return;
+    }
     navigation.navigate(
       { ...route, edit: value },
       { parent: formatRoute({ ...route, edit: undefined }) },
@@ -169,6 +226,38 @@ export default function App() {
         "请检查日期、数值范围及视频链接。" +
           (parsed.error.issues[0]?.message || ""),
       );
+    if (cloud) {
+      const key = JSON.stringify({
+        version: editing.version,
+        payload: parsed.data,
+      });
+      if (pendingMutation.current?.key !== key)
+        pendingMutation.current = { key, id: crypto.randomUUID() };
+      const result = await send<CloudDocument>(
+        "/api/spaces/" + cloud.space.id + "/document",
+        {
+          payload: parsed.data,
+          version: editing.version,
+          mutationId: pendingMutation.current.id,
+          action: (
+            {
+              profile: "更新个人资料",
+              assessment: "更新训练前评估",
+              problem: "更新问题分级",
+              plan: "更新方案与排期",
+              session: "记录训练完成情况",
+              daily: "更新每日记录",
+              review: "记录定期复查",
+            } as const
+          )[editing.edit.type],
+        },
+        "PUT",
+      );
+      cloud.onSaved(result);
+      setS(result.payload);
+      setNotice("已保存到云端，其他设备和授权教练将同步看到更新");
+      return;
+    }
     const r = await saveRecord(
       "system",
       "execution-system",
@@ -221,6 +310,12 @@ export default function App() {
     try {
       if (f.size > 5_000_000) throw new Error("备份不能超过5MB");
       const items = parseBackup(await f.text());
+      if (cloud) {
+        if (cloud.space.role !== "owner")
+          throw new Error("只有本人可以导入备份");
+        setPendingImport(items);
+        return;
+      }
       const added = await importRecords(items);
       await load();
       channel.current?.postMessage("refresh");
@@ -290,7 +385,7 @@ export default function App() {
               </span>
               <span>
                 <strong>{s.profile.name || "我的训练空间"}</strong>
-                <small>数据保存在此浏览器</small>
+                <small>{cloud ? cloud.status : "数据保存在此浏览器"}</small>
               </span>
             </div>
           </div>
@@ -308,13 +403,39 @@ export default function App() {
             </div>
             <Button
               secondary
-              disabled={loading || !!error}
+              disabled={loading || !!error || cloud?.space.role === "coach"}
               onClick={() => edit({ type: "profile" })}
             >
               <UserRound size={18} />
               编辑个人资料
             </Button>
           </header>
+          {cloud ? (
+            <div className="cloud-strip">
+              <span>
+                {cloud.space.role === "coach"
+                  ? "教练协作 · " + cloud.space.owner_name
+                  : "我的独立健身空间"}{" "}
+                · {cloud.status}
+              </span>
+              <button className="link" onClick={() => go("资料与备份")}>
+                账号与教练协作
+              </button>
+            </div>
+          ) : (
+            <div className="cloud-strip">
+              <span>
+                云端版已上线：注册后可跨设备同步，并邀请教练协作。原有记录请先在“资料与备份”导出，再到新站导入。
+              </span>
+              <a
+                href="https://fitness.bibidu.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                打开云端版 ↗
+              </a>
+            </div>
+          )}
           {loading ? (
             <div className="loading" role="status">
               正在读取你的健身计划…
@@ -346,10 +467,28 @@ export default function App() {
             <ReviewScreen {...props} />
           ) : (
             <>
+              {cloud && (
+                <CloudAccount
+                  cloud={{
+                    ...cloud,
+                    select: (id) => guarded(() => cloud.select(id)),
+                    logout: () =>
+                      new Promise<void>((resolve, reject) =>
+                        guarded(() => {
+                          void cloud.logout().then(resolve, reject);
+                        }),
+                      ),
+                  }}
+                />
+              )}
               <Section
                 title="个人资料"
                 action={
-                  <Button secondary onClick={() => edit({ type: "profile" })}>
+                  <Button
+                    secondary
+                    disabled={cloud?.space.role === "coach"}
+                    onClick={() => edit({ type: "profile" })}
+                  >
                     编辑资料
                   </Button>
                 }
@@ -375,14 +514,22 @@ export default function App() {
               </Section>
               <Section
                 title="记录备份与转移"
-                description="健康资料只保存在当前浏览器，不会随网站发布到 GitHub。更换设备或清理浏览器前，请先导出备份。"
+                description={
+                  cloud
+                    ? "健康资料保存在独立云端空间，不会发布到 GitHub。备份可用于额外保留或迁入旧站资料。"
+                    : "健康资料只保存在当前浏览器，不会随网站发布到 GitHub。更换设备或清理浏览器前，请先导出备份。"
+                }
               >
                 <div className="backup-actions">
                   <Button onClick={exportData}>
                     <Download size={18} />
                     导出完整备份
                   </Button>
-                  <Button secondary onClick={() => file.current?.click()}>
+                  <Button
+                    secondary
+                    disabled={cloud?.space.role === "coach"}
+                    onClick={() => file.current?.click()}
+                  >
                     <Upload size={18} />
                     导入备份
                   </Button>
@@ -390,11 +537,15 @@ export default function App() {
                 <p className="muted">
                   当前共 {s.daily.length} 条每日记录、{s.sessions.length}{" "}
                   个课次、
-                  {s.reviews.length}{" "}
-                  次复查。不同设备目前不自动同步；同编号导入保留此浏览器已有版本。
+                  {s.reviews.length} 次复查。
+                  {cloud
+                    ? "云端版会同步其他设备的新修改；同时编辑会检查版本，避免覆盖。"
+                    : "不同设备目前不自动同步；同编号导入保留此浏览器已有版本。"}
                 </p>
                 <p className="muted">
-                  “教练填写”表示填写流程，目前没有独立教练账号与远程协作。教练目前需在同一设备一起填写。备份可迁移到新浏览器，不支持双向合并。
+                  {cloud
+                    ? "导入备份会替换当前空间的计划与记录；导入前会让你核对并确认。原版资料会一起保留。"
+                    : "“教练填写”表示填写流程，目前没有独立教练账号与远程协作。教练目前需在同一设备一起填写。备份可迁移到新浏览器，不支持双向合并。"}
                 </p>
                 <input
                   ref={file}
@@ -526,10 +677,66 @@ export default function App() {
               if (e.type === "review") return <ReviewEditor {...shared} />;
               const session = b.sessions.find((x) => x.id === e.id);
               return session ? (
-                <SessionEditor {...shared} session={session} />
+                <SessionEditor
+                  {...shared}
+                  session={session}
+                  coachMode={cloud?.space.role === "coach"}
+                />
               ) : null;
             })()}
           </Fragment>
+        )}
+        {pendingImport && cloud && (
+          <Modal title="核对云端导入" onClose={() => setPendingImport(null)}>
+            <div className="form-content">
+              <p>
+                准备导入 {pendingImport.length} 条备份记录，当前空间：
+                {cloud.space.name}。
+              </p>
+              <p>
+                确认后将替换此空间的当前计划、日历、评估及每日记录。建议先导出当前云端备份。原版资料会一起保存，其他空间不受影响。
+              </p>
+            </div>
+            <footer className="form-footer">
+              <Button secondary onClick={() => setPendingImport(null)}>
+                取消
+              </Button>
+              <Button
+                onClick={() => {
+                  const items = pendingImport;
+                  const next =
+                    items.find((r) => r.kind === "system" && !r.deleted)
+                      ?.payload || migrateLegacy(items);
+                  const version = cloud.document.version;
+                  const key = JSON.stringify({ version, next, items });
+                  if (pendingMutation.current?.key !== key)
+                    pendingMutation.current = { key, id: crypto.randomUUID() };
+                  void send<CloudDocument>(
+                    "/api/spaces/" + cloud.space.id + "/document",
+                    {
+                      payload: systemSchema.parse(next),
+                      version,
+                      mutationId: pendingMutation.current.id,
+                      action: "导入原浏览器备份",
+                      legacy: items.filter((r) => r.kind !== "system"),
+                    },
+                    "PUT",
+                  )
+                    .then((result) => {
+                      cloud.onSaved({
+                        ...result,
+                        legacy: items.filter((r) => r.kind !== "system"),
+                      });
+                      setPendingImport(null);
+                      setNotice("备份已导入云端，手机和电脑登录此账号即可查看");
+                    })
+                    .catch((e) => setNotice(e.message));
+                }}
+              >
+                确认替换并导入
+              </Button>
+            </footer>
+          </Modal>
         )}
         {leave && (
           <Modal title="保留尚未保存的修改？" onClose={() => setLeave(null)}>
