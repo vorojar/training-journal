@@ -1,0 +1,6 @@
+CREATE TABLE notification_preferences(user_id TEXT PRIMARY KEY REFERENCES user(id),time_zone TEXT NOT NULL,training INTEGER NOT NULL DEFAULT 1,review INTEGER NOT NULL DEFAULT 1,updates INTEGER NOT NULL DEFAULT 1,lead INTEGER NOT NULL DEFAULT 30);
+CREATE TABLE notifications(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES user(id),space_id TEXT REFERENCES spaces(id),event_key TEXT NOT NULL,kind TEXT NOT NULL,reference TEXT NOT NULL DEFAULT '{}',title TEXT NOT NULL,href TEXT NOT NULL,created_at TEXT NOT NULL,read_at TEXT,UNIQUE(user_id,event_key));
+CREATE INDEX notifications_user_date ON notifications(user_id,created_at DESC);
+CREATE TABLE push_subscriptions(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES user(id),endpoint TEXT NOT NULL UNIQUE,p256dh TEXT NOT NULL,auth TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX push_user ON push_subscriptions(user_id);
+CREATE TABLE notification_deliveries(notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,subscription_id TEXT NOT NULL REFERENCES push_subscriptions(id) ON DELETE CASCADE,status TEXT NOT NULL,lease_until TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(notification_id,subscription_id));

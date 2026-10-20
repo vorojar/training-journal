@@ -2,6 +2,7 @@ import { useContext, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   assessmentFields,
+  assessmentErrors,
   severity,
   today,
   shiftDate,
@@ -26,6 +27,8 @@ import {
   numberValue,
   weekdays,
 } from "./ui";
+import { SetRecorder } from "./sets";
+import { useDraftState, useDraft, DraftNotice } from "./drafts";
 import { EditorNavigationContext } from "./hash-navigation";
 type Save = (s: System) => Promise<void>;
 function Editor({
@@ -44,10 +47,12 @@ function Editor({
   extra?: ReactNode;
 }) {
   const guard = useContext(EditorNavigationContext);
+  const draft = useDraft();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   return (
     <Modal title={title} onClose={onClose}>
+      <DraftNotice />
       <form
         onChangeCapture={() => guard.setDirty(true)}
         onClickCapture={(e) => {
@@ -59,8 +64,14 @@ function Editor({
           setBusy(true);
           guard.setSaving(true);
           setError("");
-          void onSave()
+          void Promise.resolve()
             .then(() => {
+              if (draft?.pending || draft?.needsReview)
+                throw new Error("请先处理草稿恢复提示，并核对当前云端内容");
+              return onSave();
+            })
+            .then(() => {
+              draft?.clear();
               guard.setDirty(false);
               guard.setSaving(false);
               onClose();
@@ -72,20 +83,25 @@ function Editor({
             });
         }}
       >
-        <div className="form-content">
-          {children}
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-        <footer className="form-footer">
-          {extra}
-          <Button type="submit" disabled={busy}>
-            {busy ? "正在保存…" : label}
-          </Button>
-        </footer>
+        <fieldset disabled={draft?.pending || busy} className="editor-fields">
+          <div className="form-content">
+            {children}
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+          <footer className="form-footer">
+            {extra}
+            <Button
+              type="submit"
+              disabled={busy || draft?.pending || draft?.needsReview}
+            >
+              {busy ? "正在保存…" : label}
+            </Button>
+          </footer>
+        </fieldset>
       </form>
     </Modal>
   );
@@ -99,7 +115,11 @@ export function ProfileEditor({
   save: Save;
   close: () => void;
 }) {
-  const [p, set] = useState({ ...s.profile });
+  const [p, set] = useDraftState("profile", {
+    ...s.profile,
+    timeZone:
+      s.profile.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
   const put = (key: keyof typeof p, value: string | number | null) =>
     set((x) => ({ ...x, [key]: value }));
   return (
@@ -171,7 +191,7 @@ export function AssessmentEditor({
   save: Save;
   close: () => void;
 }) {
-  const [a, set] = useState({
+  const [a, set] = useDraftState("assessment", {
     ...structuredClone(s.assessment),
     date: s.assessment.date || today(),
   });
@@ -191,6 +211,10 @@ export function AssessmentEditor({
           throw new Error(
             "确认完成前，请填写全部8项、评估人、日期、个人注意事项与停止条件。",
           );
+        if (a.confirmed) {
+          const errors = assessmentErrors({ ...s, assessment: a });
+          if (errors.length) throw new Error(errors.join("；"));
+        }
         await save({ ...s, assessment: a });
       }}
     >
@@ -239,7 +263,7 @@ export function AssessmentEditor({
           checked={a.confirmed}
           onChange={(e) => set({ ...a, confirmed: e.target.checked })}
         />
-        评估人已核实上述信息，训练边界已明确
+        评估人已核实上述信息及问题基线、目标、复查方法；确认后恢复未来暂停的训练
       </label>
     </Editor>
   );
@@ -255,7 +279,8 @@ export function ProblemEditor({
   save: Save;
   close: () => void;
 }) {
-  const [p, set] = useState<Problem>(
+  const [p, set] = useDraftState<Problem>(
+    "problem",
     problem
       ? structuredClone(problem)
       : {
@@ -350,7 +375,8 @@ export function PlanEditor({
   adjust?: boolean;
   reviewId?: string;
 }) {
-  const [p, set] = useState<Plan>(
+  const [p, set] = useDraftState<Plan>(
+    "plan",
     plan
       ? {
           ...structuredClone(plan),
@@ -376,9 +402,10 @@ export function PlanEditor({
           exercises: [],
         },
   );
-  const [mode, setMode] = useState<"draft" | "publish">("draft"),
-    [effective, setEffective] = useState(today()),
-    [reason, setReason] = useState(
+  const [mode, setMode] = useDraftState<"draft" | "publish">("mode", "draft"),
+    [effective, setEffective] = useDraftState("effective", today()),
+    [reason, setReason] = useDraftState(
+      "reason",
       s.reviews.find((r) => r.id === reviewId)?.conclusion || "",
     );
   const put = (k: keyof Plan, v: unknown) => set((x) => ({ ...x, [k]: v }));
@@ -717,7 +744,7 @@ export function SessionEditor({
   save: Save;
   close: () => void;
 }) {
-  const [v, set] = useState(structuredClone(session));
+  const [v, set] = useDraftState("session", () => structuredClone(session));
   const [error, setError] = useState("");
   const details = (
     <>
@@ -750,6 +777,7 @@ export function SessionEditor({
     const content = (
       <>
         {details}
+        <SetRecorder session={v} readOnly />
         <dl>
           <div>
             <dt>完成情况</dt>
@@ -777,7 +805,7 @@ export function SessionEditor({
         </p>
       </>
     );
-    if (v.status !== "待完成")
+    if (!["待完成", "已暂停"].includes(v.status))
       return (
         <Modal title={`${v.date} · ${v.title}`} onClose={close}>
           <div className="form-content">{content}</div>
@@ -815,6 +843,18 @@ export function SessionEditor({
       </Editor>
     );
   }
+  if (s.trainingHold?.active && v.status !== "已完成")
+    return (
+      <Modal title="训练已暂停" onClose={close}>
+        <div className="form-content">
+          <p>{s.trainingHold.reason}</p>
+          <p>
+            完成重新评估并确认恢复后，才能继续记录训练。原有课次和记录已保留。
+          </p>
+          {details}
+        </div>
+      </Modal>
+    );
   return (
     <Editor
       title={`${v.date} · ${v.title}`}
@@ -822,7 +862,11 @@ export function SessionEditor({
       onSave={async () => {
         if (v.status === "已完成" && v.date > today())
           throw new Error("未来的训练不能提前标记为已完成，请在训练后记录。");
-        if (v.status === "已完成" && !v.actual.trim())
+        if (
+          v.status === "已完成" &&
+          !v.actual.trim() &&
+          !v.setLogs?.some((row) => row.done)
+        )
           throw new Error("请填写实际完成的动作、组数、次数与负荷。");
         if (v.status === "已跳过" && !v.symptoms.trim())
           throw new Error("请在身体反应栏填写跳过原因。");
@@ -843,6 +887,7 @@ export function SessionEditor({
       }}
     >
       {details}
+      <SetRecorder session={v} onChange={(setLogs) => set({ ...v, setLogs })} />
       <div className="form-grid">
         <Select
           label="完成情况"
@@ -902,7 +947,8 @@ export function DailyEditor({
   save: Save;
   close: () => void;
 }) {
-  const [v, set] = useState<Daily>(
+  const [v, set] = useDraftState<Daily>(
+    "daily",
     entry
       ? structuredClone(entry)
       : {
@@ -994,13 +1040,14 @@ export function ReviewEditor({
   save: Save;
   close: () => void;
 }) {
-  const [r, set] = useState<Review>({
+  const [r, set] = useDraftState<Review>("review", {
     id: uid(),
     date: today(),
     coach: s.profile.coach,
     conclusion: "",
     nextDate: shiftDate(today(), 14),
     action: "继续原计划",
+    planIds: s.plans.filter((p) => p.status === "已发布").map((p) => p.id),
     changes: s.problems.map((p) => ({
       problemId: p.id,
       name: p.name,
@@ -1015,6 +1062,8 @@ export function ReviewEditor({
       title="定期复查与问题复评"
       onClose={close}
       onSave={async () => {
+        if (r.action === "调整后续计划" && !r.planIds?.length)
+          throw new Error("请选择本次需要调整的方案，或选择继续原计划");
         if (r.nextDate && r.nextDate <= r.date)
           throw new Error("下次复查日期应晚于本次复查。");
         if (s.reviews.some((x) => x.date > r.date))
@@ -1131,6 +1180,31 @@ export function ReviewEditor({
           onChange={(v) => set({ ...r, nextDate: v })}
         />
       </div>
+      {r.action === "调整后续计划" && (
+        <div className="review-plan-picker">
+          <h3>本次需要调整的方案</h3>
+          <p className="muted">逐份核对；未选择的方案继续原计划。</p>
+          {s.plans
+            .filter((p) => p.status === "已发布")
+            .map((p) => (
+              <label className="checkline" key={p.id}>
+                <input
+                  type="checkbox"
+                  checked={r.planIds?.includes(p.id) ?? false}
+                  onChange={(e) =>
+                    set({
+                      ...r,
+                      planIds: e.target.checked
+                        ? [...(r.planIds ?? []), p.id]
+                        : (r.planIds ?? []).filter((id) => id !== p.id),
+                    })
+                  }
+                />
+                {p.name}
+              </label>
+            ))}
+        </div>
+      )}
       <p className="muted">
         保存后会更新问题分级。选择“调整后续计划”时，请继续进入方案调整，预览并确认新的日历排程。
       </p>

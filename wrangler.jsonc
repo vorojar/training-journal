@@ -22,5 +22,6 @@
     },
   ],
   "vars": { "APP_URL": "https://fitness.bibidu.com" },
+  "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": false },
 }

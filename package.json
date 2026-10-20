@@ -9,11 +9,13 @@
     "check": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "preview": "vite preview --host 127.0.0.1 --port 4174",
     "test": "vitest run",
+    "test:execution":"node --experimental-strip-types scripts/test-execution.mjs",
     "build:cloud": "FITNESS_CLOUD=1 vite build --base /",
     "dev:cloud": "wrangler dev --config wrangler.local.jsonc --port 8787",
     "deploy:cloud": "npm run check && npm test && npm run build:cloud && wrangler deploy"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0",
     "better-auth": "^1.7.11",
     "lucide-react": "^1.31.0",
     "react": "19.2.6",

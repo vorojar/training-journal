@@ -22,7 +22,11 @@ export async function request<T>(
   const response = await fetch(path, {
     credentials: "same-origin",
     ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Fitness-Client": "3",
+      ...options.headers,
+    },
   });
   const result = await response
     .json()

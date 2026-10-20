@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Section, Badge } from "../execution/ui";
 import { request, send, type CloudConnection } from "./client";
+import { NotificationCenter } from "./reminders";
 type Member = {
   user_id: string;
   name: string;
@@ -60,6 +61,7 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
   }
   return (
     <>
+      <NotificationCenter cloud={cloud} />
       <Section
         title="账号与云端同步"
         description="同一账号登录手机、电脑，即可访问同一套数据。保存后即时写入云端，页面会定期获取其他设备和教练的新修改。"

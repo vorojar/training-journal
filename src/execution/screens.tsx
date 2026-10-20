@@ -17,6 +17,7 @@ import {
 import {
   assessmentFields,
   readiness,
+  reviewProgress,
   today,
   shiftDate,
   type System,
@@ -69,6 +70,8 @@ export function Flow({ s, go }: Pick<ScreenProps, "s" | "go">) {
     </div>
   );
 }
+import { ReminderTasks } from "../cloud/reminders";
+import { StrengthProgress } from "./sets";
 export function Overview({ s, edit, go }: ScreenProps) {
   const ready = readiness(s),
     sessions = s.sessions.filter(
@@ -116,6 +119,8 @@ export function Overview({ s, edit, go }: ScreenProps) {
           </Section>
           <Week s={s} edit={edit} go={go} />
           <Metrics s={s} edit={edit} />
+          <StrengthProgress s={s} />
+          <ReminderTasks s={s} go={go} />
         </div>
         <div className="secondary-column">
           <Section title="训练准备">
@@ -830,9 +835,11 @@ export function CalendarScreen({
                           ? "done"
                           : x.status === "已取消"
                             ? "cancelled"
-                            : x.status === "已跳过"
-                              ? "skipped"
-                              : "")
+                            : x.status === "已暂停"
+                              ? "paused"
+                              : x.status === "已跳过"
+                                ? "skipped"
+                                : "")
                       }
                     >
                       {x.time} {x.title}
@@ -1025,7 +1032,9 @@ export function ReviewScreen({ s, edit, go }: ScreenProps) {
       <Section title="复查记录与后续处理">
         {s.reviews.length ? (
           s.reviews.map((r) => {
-            const adjusted = s.adjustments.some((a) => a.reviewId === r.id);
+            const progress = reviewProgress(s, r);
+            const adjusted =
+              progress.plans.length > 0 && progress.remaining.length === 0;
             return (
               <article className="review-entry" key={r.id}>
                 <header>
@@ -1058,20 +1067,40 @@ export function ReviewScreen({ s, edit, go }: ScreenProps) {
                 ))}
                 {r.action === "调整后续计划" &&
                   !adjusted &&
-                  (plan ? (
-                    <Button
-                      onClick={() =>
-                        edit({
-                          type: "plan",
-                          id: plan.id,
-                          adjust: true,
-                          reviewId: r.id,
-                        })
-                      }
-                    >
-                      根据本次复查调整方案与日历
-                      <ArrowRight size={17} />
-                    </Button>
+                  (progress.plans.length ? (
+                    <div className="review-plan-list">
+                      {progress.plans.map((p) => {
+                        const done = !progress.remaining.some(
+                          (x) => x.id === p.id,
+                        );
+                        return (
+                          <div key={p.id}>
+                            <strong>{p.name}</strong>
+                            {done ? (
+                              <Badge tone="green">已调整</Badge>
+                            ) : (
+                              <Button
+                                onClick={() =>
+                                  edit({
+                                    type: "plan",
+                                    id: p.id,
+                                    adjust: true,
+                                    reviewId: r.id,
+                                  })
+                                }
+                              >
+                                调整此方案与日历
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <p className="muted">
+                        待处理 {progress.remaining.length}/
+                        {progress.plans.length}{" "}
+                        份方案；全部处理后才完成本次复查排期。
+                      </p>
+                    </div>
                   ) : (
                     <LinkButton onClick={() => go("教练方案")}>
                       先制定训练方案

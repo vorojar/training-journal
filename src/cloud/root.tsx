@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import App from "../execution/app";
-import { Button, Input, TextArea } from "../execution/ui";
+import { Button, Input } from "../execution/ui";
 import {
   request,
   send,
@@ -35,7 +35,9 @@ export default function CloudRoot() {
         return;
       }
       setUser(auth.user);
-      await send("/api/bootstrap", {});
+      await send("/api/bootstrap", {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
       const list = await request<{ spaces: Space[] }>("/api/spaces");
       setSpaces(list.spaces);
       const last = localStorage.getItem("fitness-space-" + auth.user.id);
@@ -80,7 +82,9 @@ export default function CloudRoot() {
         "/api/spaces/" + selected + "/document",
       );
       if (current.current !== selected) return;
-      setDoc(latest);
+      setDoc((previous) =>
+        previous && previous.version > latest.version ? previous : latest,
+      );
       setStatus("已同步到云端");
     } catch (e) {
       setStatus("同步失败：" + (e instanceof Error ? e.message : "请重试"));
@@ -163,13 +167,27 @@ export default function CloudRoot() {
         },
         onSaved: (newDoc) => {
           if (current.current !== space.id) return;
-          setDoc((previous) => ({
-            ...newDoc,
-            legacy: newDoc.legacy ?? previous?.legacy,
-          }));
+          setDoc((previous) =>
+            previous && previous.version > newDoc.version
+              ? previous
+              : {
+                  ...newDoc,
+                  legacy: newDoc.legacy ?? previous?.legacy,
+                },
+          );
           setStatus("已同步到云端");
         },
         logout: async () => {
+          if ("serviceWorker" in navigator) {
+            const reg = await navigator.serviceWorker.getRegistration("/");
+            const sub = await reg?.pushManager.getSubscription();
+            if (sub) {
+              await send("/api/notifications/unsubscribe", {
+                endpoint: sub.endpoint,
+              });
+              await sub.unsubscribe();
+            }
+          }
           await send("/api/auth/sign-out", {});
           current.current = "";
           setDoc(null);

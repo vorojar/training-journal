@@ -16,6 +16,7 @@ async function call(
     method,
     headers: {
       "Content-Type": "application/json",
+      "X-Fitness-Client": "3",
       Origin: base,
       ...(actor?.cookie ? { Cookie: actor.cookie } : {}),
     },
@@ -174,6 +175,7 @@ const concurrent = await Promise.all(
       headers: {
         Origin: base,
         "Content-Type": "application/json",
+        "X-Fitness-Client": "3",
         Cookie: owner.cookie,
       },
       body: JSON.stringify(b),
@@ -321,6 +323,7 @@ const forgedOrigin = await fetch(base + "/api/bootstrap", {
     Origin: "https://untrusted.invalid",
     Cookie: owner.cookie,
     "Content-Type": "application/json",
+    "X-Fitness-Client": "3",
   },
   body: "{}",
 });

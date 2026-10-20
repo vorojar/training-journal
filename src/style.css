@@ -2222,3 +2222,122 @@ dialog::backdrop {
     font-size: 16px;
   }
 }
+
+.hold-banner {
+  padding: 20px;
+  border: 1px solid #ebc698;
+  background: #fff6e9;
+  border-radius: 12px;
+  margin-bottom: 22px;
+}
+.hold-banner strong {
+  color: #91531b;
+}
+.editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.draft-notice {
+  padding: 14px 28px;
+  background: #f0f5fc;
+  border-bottom: 1px solid #dce5f1;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.draft-notice p {
+  margin: 4px 0 10px;
+}
+.draft-notice .btn {
+  margin-right: 8px;
+  margin-bottom: 5px;
+}
+.set-exercise {
+  padding: 16px 0;
+  border-bottom: 1px solid #e3e8ef;
+}
+.set-row {
+  display: grid;
+  grid-template-columns: 60px repeat(3, minmax(0, 1fr)) 70px 42px;
+  gap: 10px;
+  align-items: end;
+  margin: 15px 0;
+}
+.set-row .field > span {
+  font-size: 12px;
+}
+.set-check {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.review-plan-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+}
+.reminder-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.reminder-options .field {
+  min-width: 150px;
+}
+.page-header {
+  flex-wrap: wrap;
+}
+.page-header > div:first-child {
+  flex: 1;
+}
+.draft-notice button {
+  min-height: 44px;
+}
+@media (max-width: 700px) {
+  .set-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    background: #f6f8fb;
+    padding: 12px;
+    border-radius: 10px;
+  }
+  .set-row > strong {
+    grid-column: 1/-1;
+  }
+  .set-row .field > span {
+    font-size: 13px;
+  }
+  .set-row .link {
+    min-height: 44px;
+  }
+  .draft-notice {
+    padding: 14px 20px;
+  }
+  .review-plan-list > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .reminder-options {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .hold-banner {
+    padding: 16px;
+  }
+}
+
+.calendar-event.paused {
+  background: #fff2df;
+  color: #986025;
+}
+.review-plan-picker {
+  padding: 14px;
+  border: 1px solid #dfe7ef;
+  border-radius: 12px;
+  margin-top: 18px;
+}

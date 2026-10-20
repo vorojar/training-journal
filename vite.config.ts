@@ -9,6 +9,10 @@ export default defineConfig({
         if (ctx.server) return html;
         return process.env.FITNESS_CLOUD === "1"
           ? html
+              .replace(
+                "</head>",
+                '<link rel="manifest" href="/manifest.webmanifest"/><meta name="theme-color" content="#2463eb"/><meta name="apple-mobile-web-app-capable" content="yes"/></head>',
+              )
               .replaceAll(
                 "https://vorojar.github.io/training-journal/",
                 "https://fitness.bibidu.com/",

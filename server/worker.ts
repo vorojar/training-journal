@@ -1,10 +1,18 @@
 /// <reference types="@cloudflare/workers-types" />
+import {
+  notificationApi,
+  changeNotifications,
+  scheduledReminders,
+} from "./notifications";
 import { z } from "zod";
 import { parseBackup } from "../src/lib/storage";
 import { authentication, type Env } from "./auth";
 import {
   emptySystem,
+  today,
   planErrors,
+  assessmentErrors,
+  reconcileSystem,
   systemSchema,
   type System,
 } from "../src/execution/domain";
@@ -48,17 +56,18 @@ export function coachAllowed(old: System, next: System) {
     const after = next.sessions.find((s) => s.id === before.id);
     if (!after) return false;
     if (
-      before.status !== "待完成" &&
+      !["待完成", "已暂停"].includes(before.status) &&
       JSON.stringify(before) !== JSON.stringify(after)
     )
       return false;
     if (
-      before.status === "待完成" &&
-      after.status !== "待完成" &&
-      after.status !== "已取消"
+      ["待完成", "已暂停"].includes(before.status) &&
+      !["待完成", "已暂停", "已取消"].includes(after.status)
     )
       return false;
     if (
+      JSON.stringify(before.setLogs ?? []) !==
+        JSON.stringify(after.setLogs ?? []) ||
       before.actual !== after.actual ||
       before.effort !== after.effort ||
       before.symptoms !== after.symptoms ||
@@ -69,7 +78,9 @@ export function coachAllowed(old: System, next: System) {
   }
   if (
     next.sessions.some(
-      (s) => !old.sessions.some((x) => x.id === s.id) && s.status !== "待完成",
+      (s) =>
+        !old.sessions.some((x) => x.id === s.id) &&
+        !["待完成", "已暂停"].includes(s.status),
     )
   )
     return false;
@@ -96,9 +107,21 @@ export async function api(request: Request, env: Env): Promise<Response> {
   if (!session) return apiError("请先登录", 401);
   const user = session.user,
     db = env.DB;
+  const notices = await notificationApi(request, env, user.id);
+  if (notices) return notices;
   if (path === "/api/bootstrap" && request.method === "POST") {
     const spaceId = uuid(),
       s = emptySystem();
+    const profileInput = z
+      .object({ timeZone: z.string().max(100).optional() })
+      .parse(await body(request));
+    const zone = profileInput.timeZone ?? "Asia/Shanghai";
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: zone });
+    } catch {
+      return apiError("时区不正确");
+    }
+    s.profile.timeZone = zone;
     s.profile.name = user.name;
     s.profile.goal = "尚未设置训练目标";
     s.profile.gainKg = null;
@@ -216,6 +239,11 @@ export async function api(request: Request, env: Env): Promise<Response> {
     });
   }
   if (section === "document" && request.method === "PUT") {
+    if (request.headers.get("X-Fitness-Client") !== "3")
+      return apiError(
+        "网站已升级，请先复制保留当前填写，再刷新网页后保存，避免旧页面覆盖新记录",
+        409,
+      );
     const b = z
       .object({
         payload: systemSchema,
@@ -278,6 +306,27 @@ export async function api(request: Request, env: Env): Promise<Response> {
         "教练可以编辑评估、问题、方案与排期；个人资料、每日测量和实际完成情况由本人填写",
         403,
       );
+    if (b.legacy !== undefined && assessmentErrors(b.payload).length) {
+      b.payload.assessment.confirmed = false;
+      if (b.payload.sessions.some((s) => s.status === "待完成"))
+        b.payload.trainingHold = {
+          active: true,
+          reason: "导入的资料需要补齐评估后恢复训练",
+          since: new Date().toISOString().slice(0, 10),
+        };
+    }
+    try {
+      b.payload = reconcileSystem(
+        systemSchema.parse(JSON.parse(current.payload)),
+        b.payload,
+        today(b.payload.profile.timeZone ?? "Asia/Shanghai"),
+        b.legacy !== undefined,
+      );
+    } catch (error) {
+      return apiError(
+        error instanceof Error ? error.message : "训练数据不符合执行规则",
+      );
+    }
     const before = systemSchema.parse(JSON.parse(current.payload));
     for (const plan of b.payload.plans) {
       const previous = before.plans.find((p) => p.id === plan.id);
@@ -314,6 +363,7 @@ export async function api(request: Request, env: Env): Promise<Response> {
             "INSERT INTO changes SELECT space_id,mutation_id,mutation_hash,actor_id,version,payload,action,updated_at FROM documents WHERE space_id=? AND mutation_id=? AND mutation_hash=? ON CONFLICT(space_id,mutation_id) DO NOTHING",
           )
           .bind(spaceId, b.mutationId, hash),
+        ...changeNotifications(db, spaceId, b.mutationId, user.id),
       ]);
       const result = results[0]?.results[0] as
         | { version: number; payload: string; updated_at: string }
@@ -424,6 +474,13 @@ export async function api(request: Request, env: Env): Promise<Response> {
   return apiError("接口不存在", 404);
 }
 export default {
+  async scheduled(
+    _event: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ) {
+    ctx.waitUntil(scheduledReminders(env));
+  },
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     let response: Response;

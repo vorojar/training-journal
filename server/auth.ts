@@ -3,7 +3,8 @@ export type Env = {
   DB: D1Database;
   ASSETS: Fetcher;
   APP_URL: string;
-} & Record<"BETTER_AUTH_SECRET", string>;
+} & Record<"BETTER_AUTH_SECRET", string> &
+  Partial<Record<"VAPID_PUBLIC_KEY" | "VAPID_PRIVATE_KEY", string>>;
 export function authentication(env: Env) {
   return betterAuth({
     database: env.DB,

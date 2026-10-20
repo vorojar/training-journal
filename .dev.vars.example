@@ -1,2 +1,4 @@
 APP_URL=http://localhost:8787
 BETTER_AUTH_SECRET=replace-with-a-random-secret-at-least-32-bytes
+VAPID_PUBLIC_KEY=replace-with-base64url-p256-public-key
+VAPID_PRIVATE_KEY=replace-with-base64url-p256-private-key

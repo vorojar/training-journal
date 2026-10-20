@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Home,
   ClipboardCheck,
@@ -25,6 +25,7 @@ import {
   emptySystem,
   migrateLegacy,
   systemSchema,
+  reconcileSystem,
   today,
   type System,
 } from "./domain";
@@ -54,12 +55,14 @@ import {
   type Edit,
 } from "./routes";
 import { EditorNavigationContext, useHashNavigation } from "./hash-navigation";
+import { UpdateBell } from "../cloud/reminders";
 import CloudAccount from "../cloud/account";
 import {
   send,
   type CloudConnection,
   type CloudDocument,
 } from "../cloud/client";
+import { DraftProvider } from "./drafts";
 const navigationItems = [
   ["我的总览", Home],
   ["训练前评估", ClipboardCheck],
@@ -220,6 +223,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
   }
   async function save(next: System) {
     if (!editing) throw new Error("填写窗口已关闭，请重试");
+    next = reconcileSystem(editing.snapshot, next);
     const parsed = systemSchema.safeParse(next);
     if (!parsed.success)
       throw new Error(
@@ -401,6 +405,9 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                 )}
               </p>
             </div>
+            {cloud && (
+              <UpdateBell cloud={cloud} open={() => go("资料与备份")} />
+            )}
             <Button
               secondary
               disabled={loading || !!error || cloud?.space.role === "coach"}
@@ -410,6 +417,15 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
               编辑个人资料
             </Button>
           </header>
+          {s.trainingHold?.active && (
+            <div className="hold-banner" role="alert">
+              <strong>训练已暂停 · 等待重新评估</strong>
+              <p>{s.trainingHold.reason}</p>
+              <Button secondary onClick={() => edit({ type: "assessment" })}>
+                完成评估与恢复确认
+              </Button>
+            </div>
+          )}
           {cloud ? (
             <div className="cloud-strip">
               <span>
@@ -643,7 +659,21 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
           </div>
         )}
         {editing && editing.key === formatRoute(route) && (
-          <Fragment key={editing.key}>
+          <DraftProvider
+            key={editing.key}
+            scope={cloud ? cloud.user.id + ":" + cloud.space.id : "local"}
+            route={JSON.stringify(editing.edit)}
+            version={editing.version}
+            onDiscard={() =>
+              setEditing({
+                ...editing,
+                snapshot: structuredClone(s),
+                version:
+                  records.find((r) => r.id === "execution-system")?.version ??
+                  0,
+              })
+            }
+          >
             {(() => {
               const { edit: e, snapshot: b } = editing,
                 close = () => navigation.close(),
@@ -684,7 +714,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                 />
               ) : null;
             })()}
-          </Fragment>
+          </DraftProvider>
         )}
         {pendingImport && cloud && (
           <Modal title="核对云端导入" onClose={() => setPendingImport(null)}>
@@ -741,7 +771,9 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
         {leave && (
           <Modal title="保留尚未保存的修改？" onClose={() => setLeave(null)}>
             <div className="form-content">
-              <p>当前填写内容还没有保存。离开后，这些修改将不会保留。</p>
+              <p>
+                当前内容尚未提交。填写内容会保存在本设备草稿中，稍后回到该窗口可恢复；请留意草稿保存失败提示。
+              </p>
             </div>
             <footer className="form-footer">
               <Button secondary onClick={() => setLeave(null)}>
@@ -754,7 +786,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                   leave();
                 }}
               >
-                放弃修改并离开
+                保留草稿并离开
               </Button>
             </footer>
           </Modal>

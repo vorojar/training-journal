@@ -90,15 +90,26 @@ const planSchema = z.object({
   cautions: text,
   exercises: z.array(exerciseSchema).max(100),
 });
+export const setLogSchema = z.object({
+  id: short.min(1),
+  exerciseId: short,
+  exerciseName: short.min(1),
+  reps: z.number().int().min(1).max(1000).nullable(),
+  weight: num(0, 2000),
+  seconds: num(1, 86400),
+  done: z.boolean(),
+});
+export type SetLog = z.infer<typeof setLogSchema>;
 const sessionSchema = z.object({
   id: short,
   planId: short,
   planVersion: z.number().int(),
   date,
-  time: short,
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   title: short,
-  minutes: z.number(),
-  status: z.enum(["待完成", "已完成", "已跳过", "已取消"]),
+  minutes: z.number().int().min(5).max(300),
+  status: z.enum(["待完成", "已完成", "已跳过", "已取消", "已暂停"]),
+  setLogs: z.array(setLogSchema).max(1000).optional(),
   exercises: z.array(exerciseSchema),
   cautions: text,
   actual: text,
@@ -137,6 +148,7 @@ const reviewSchema = z.object({
     }),
   ),
   action: z.enum(["继续原计划", "调整后续计划", "进一步评估"]),
+  planIds: z.array(short).max(200).optional(),
 });
 const adjustmentSchema = z.object({
   id: short,
@@ -156,6 +168,18 @@ export const systemSchema = z
     schemaVersion: z.literal(2),
     profile: z.object({
       name: short,
+      timeZone: z
+        .string()
+        .max(100)
+        .refine((v) => {
+          try {
+            new Intl.DateTimeFormat("en", { timeZone: v });
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .optional(),
       birthYear: num(1900, 2100),
       goal: text,
       height: num(50, 250),
@@ -171,6 +195,9 @@ export const systemSchema = z
       cautions: text,
       stopRules: text,
     }),
+    trainingHold: z
+      .object({ active: z.boolean(), reason: text, since: date })
+      .optional(),
     problems: z.array(problemSchema).max(200),
     plans: z.array(planSchema).max(200),
     sessions: z.array(sessionSchema).max(5000),
@@ -193,8 +220,19 @@ export function shiftDate(value: string, days: number) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-export function today() {
+export function today(timeZone?: string) {
   const d = new Date();
+  if (timeZone) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+    return ["year", "month", "day"]
+      .map((k) => parts.find((p) => p.type === k)!.value)
+      .join("-");
+  }
   return [
     d.getFullYear(),
     String(d.getMonth() + 1).padStart(2, "0"),
@@ -310,8 +348,11 @@ export function readiness(s: System) {
       .length,
     total: assessmentFields.length,
     confirmed: s.assessment.confirmed,
-    graded: s.problems.filter((p) => p.severity !== "待评估" && p.basis.trim())
-      .length,
+    graded: s.problems.filter(
+      (p) =>
+        p.severity !== "待评估" &&
+        [p.basis, p.measurement, p.goal, p.retest].every((v) => v.trim()),
+    ).length,
   };
 }
 export function planErrors(s: System, p: Plan): string[] {
@@ -325,8 +366,14 @@ export function planErrors(s: System, p: Plan): string[] {
     !s.assessment.stopRules.trim()
   )
     errors.push("请先完成并确认训练前评估");
-  if (s.problems.some((x) => x.severity === "待评估" || !x.basis.trim()))
-    errors.push("请补齐所有问题的分级与分级依据");
+  if (
+    s.problems.some(
+      (x) =>
+        x.severity === "待评估" ||
+        ![x.basis, x.measurement, x.goal, x.retest].every((v) => v.trim()),
+    )
+  )
+    errors.push("请补齐所有问题的程度、分级依据、基线测量、改善目标和复查方法");
   if (!p.coach.trim()) errors.push("请填写制定教练");
   if (p.end < p.start) errors.push("结束日期不能早于开始日期");
   if (Date.parse(p.end) - Date.parse(p.start) > 366 * 86400000)
@@ -394,11 +441,13 @@ export function publishPlan(s: System, p: Plan): System {
   if (s.plans.some((x) => x.id === p.id && x.status === "已发布"))
     throw new Error("已发布方案请通过复查调整，保留原有执行记录");
   const published = { ...p, status: "已发布" as const };
-  return {
+  const next = {
     ...s,
     plans: [published, ...s.plans.filter((x) => x.id !== p.id)],
     sessions: [...s.sessions, ...generateSessions(published)],
   };
+  assertNoConflicts(s, next);
+  return next;
 }
 export function applyAdjustment(
   s: System,
@@ -445,10 +494,239 @@ export function applyAdjustment(
     scheduled: added.length,
     summary: `${old.name} v${old.version} → ${updated.name} v${updated.version}；${updated.start} 至 ${updated.end}`,
   };
-  return {
+  const next = {
     ...s,
     plans: s.plans.map((x) => (x.id === p.id ? updated : x)),
     sessions: [...sessions, ...added],
     adjustments: [adjustment, ...s.adjustments],
   };
+  assertNoConflicts(s, next);
+  return next;
+}
+
+export function assessmentErrors(s: System): string[] {
+  const errors: string[] = [];
+  if (
+    assessmentFields.some(([k]) => !s.assessment.fields[k]?.trim()) ||
+    !s.assessment.assessor.trim() ||
+    !s.assessment.date ||
+    !s.assessment.cautions.trim() ||
+    !s.assessment.stopRules.trim()
+  )
+    errors.push("请补齐8项评估、评估人、日期、注意事项和暂停条件");
+  if (
+    s.problems.some(
+      (p) =>
+        p.severity === "待评估" ||
+        ![p.basis, p.measurement, p.goal, p.retest].every((v) => v.trim()),
+    )
+  )
+    errors.push("每个问题都需要程度、分级依据、基线测量、改善目标和复查方法");
+  return errors;
+}
+function activeSession(s: Session) {
+  return s.status === "待完成" || s.status === "已完成";
+}
+function slot(s: Session) {
+  const start = Date.parse(`${s.date}T${s.time}:00Z`);
+  return { start, end: start + s.minutes * 60000 };
+}
+export function calendarConflicts(s: System) {
+  const rows = s.sessions
+    .filter(activeSession)
+    .map((x) => ({ x, ...slot(x) }))
+    .sort((a, b) => a.start - b.start);
+  const pairs: [Session, Session][] = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length && rows[j]!.start < rows[i]!.end; j++) {
+      if (rows[j]!.end > rows[i]!.start) pairs.push([rows[i]!.x, rows[j]!.x]);
+    }
+  }
+  return pairs;
+}
+export function assertNoConflicts(before: System, next: System) {
+  const changed = new Set(
+    next.sessions
+      .filter((n) => {
+        const old = before.sessions.find((o) => o.id === n.id);
+        return (
+          !old ||
+          old.date !== n.date ||
+          old.time !== n.time ||
+          old.minutes !== n.minutes ||
+          (!activeSession(old) && activeSession(n))
+        );
+      })
+      .map((x) => x.id),
+  );
+  const conflict = calendarConflicts(next).find(
+    ([a, b]) => changed.has(a.id) || changed.has(b.id),
+  );
+  if (conflict) {
+    const [a, b] = conflict;
+    throw new Error(
+      `训练时间冲突：${a.date} ${a.time}「${a.title}」与${b.date} ${b.time}「${b.title}」重叠，请调整日期或时间`,
+    );
+  }
+}
+export function reviewPlans(s: System, r: Review) {
+  const ids =
+    r.planIds ?? s.plans.filter((p) => p.status === "已发布").map((p) => p.id);
+  return s.plans.filter((p) => ids.includes(p.id));
+}
+export function reviewProgress(s: System, r: Review) {
+  const plans = reviewPlans(s, r);
+  return {
+    plans,
+    remaining: plans.filter(
+      (p) =>
+        !s.adjustments.some((a) => a.reviewId === r.id && a.planId === p.id),
+    ),
+  };
+}
+export function reconcileSystem(
+  before: System,
+  input: System,
+  day = today(input.profile.timeZone),
+  allowHistoricalImport = false,
+): System {
+  const next = structuredClone(input);
+  const newReview = next.reviews.find(
+    (r) =>
+      r.action === "进一步评估" &&
+      !before.reviews.some((old) => old.id === r.id),
+  );
+  if (
+    newReview ||
+    (before.assessment.confirmed &&
+      !next.assessment.confirmed &&
+      next.sessions.some((row) => row.status === "待完成")) ||
+    (!next.assessment.confirmed &&
+      next.plans.some((p) => p.status === "已发布") &&
+      next.sessions.some((row) => row.status === "待完成") &&
+      !before.trainingHold?.active)
+  ) {
+    next.assessment.confirmed = false;
+    next.trainingHold = {
+      active: true,
+      reason:
+        newReview?.conclusion || "评估或问题分级已更新，请重新核对训练边界",
+      since: newReview?.date || day,
+    };
+  } else if (before.trainingHold?.active) {
+    if (
+      next.assessment.confirmed &&
+      (!before.assessment.confirmed ||
+        JSON.stringify(before.assessment) !== JSON.stringify(next.assessment) ||
+        JSON.stringify(before.problems) !== JSON.stringify(next.problems))
+    ) {
+      const errors = assessmentErrors(next);
+      if (errors.length) throw new Error(errors.join("；"));
+      next.trainingHold = { ...before.trainingHold, active: false };
+    } else next.trainingHold = before.trainingHold;
+  }
+  if (
+    next.assessment.confirmed &&
+    (!before.assessment.confirmed ||
+      JSON.stringify(before.assessment) !== JSON.stringify(next.assessment) ||
+      JSON.stringify(before.problems) !== JSON.stringify(next.problems))
+  ) {
+    const errors = assessmentErrors(next);
+    if (errors.length) throw new Error(errors.join("；"));
+  }
+  if (next.trainingHold?.active) {
+    for (const row of next.sessions) {
+      const old = before.sessions.find((x) => x.id === row.id);
+      if (
+        row.status === "已完成" &&
+        old?.status !== "已完成" &&
+        !(allowHistoricalImport && row.date <= day)
+      )
+        throw new Error("训练已暂停，请先完成重新评估并由评估人确认恢复");
+    }
+    next.sessions = next.sessions.map((row) =>
+      row.status === "待完成" ? { ...row, status: "已暂停" } : row,
+    );
+  } else if (before.trainingHold?.active) {
+    next.sessions = next.sessions.map((row) =>
+      row.status === "已暂停" && row.date >= day
+        ? { ...row, status: "待完成" }
+        : row,
+    );
+  }
+  for (const row of next.sessions) {
+    const old = before.sessions.find((x) => x.id === row.id);
+    if (
+      row.status === "已完成" &&
+      old?.status !== "已完成" &&
+      !(allowHistoricalImport && row.date <= day)
+    ) {
+      if (!next.assessment.confirmed || assessmentErrors(next).length)
+        throw new Error("请先补齐并确认评估，再完成训练记录");
+      if (row.date > day) throw new Error("未来课次不能提前标记完成");
+      if (!row.actual.trim() && !row.setLogs?.some((set) => set.done))
+        throw new Error("请填写实际训练内容或完成组记录");
+    }
+    if (
+      new Set(row.setLogs?.map((x) => x.id)).size !== (row.setLogs?.length ?? 0)
+    )
+      throw new Error("组记录编号重复");
+    for (const set of row.setLogs ?? []) {
+      if (
+        !row.exercises.some(
+          (e) => e.id === set.exerciseId && e.name === set.exerciseName,
+        )
+      )
+        throw new Error("组记录必须对应本次训练的动作");
+      if (
+        set.done &&
+        !((set.reps !== null && set.weight !== null) || set.seconds !== null)
+      )
+        throw new Error("完成一组前，请填写次数与负重（自重填0），或实际时长");
+    }
+  }
+  assertNoConflicts(before, next);
+  return next;
+}
+export function strengthSeries(s: System, name: string) {
+  const grouped = new Map<
+    string,
+    {
+      date: string;
+      load: number;
+      volume: number;
+      reps: number;
+      sets: number;
+      estimatedMax: number | null;
+    }
+  >();
+  for (const session of s.sessions.filter((x) => x.status === "已完成"))
+    for (const log of session.setLogs ?? []) {
+      if (
+        !log.done ||
+        log.exerciseName.trim() !== name.trim() ||
+        log.reps === null ||
+        log.weight === null
+      )
+        continue;
+      const row = grouped.get(session.date) ?? {
+        date: session.date,
+        load: 0,
+        volume: 0,
+        reps: 0,
+        sets: 0,
+        estimatedMax: null,
+      };
+      row.load = Math.max(row.load, log.weight);
+      row.volume += log.weight * log.reps;
+      row.reps += log.reps;
+      row.sets++;
+      if (log.weight > 0 && log.reps <= 10) {
+        const estimate =
+          log.reps === 1 ? log.weight : log.weight * (1 + log.reps / 30);
+        row.estimatedMax = Math.max(row.estimatedMax ?? 0, estimate);
+      }
+      grouped.set(session.date, row);
+    }
+  return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
