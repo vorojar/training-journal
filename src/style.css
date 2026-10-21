@@ -2932,3 +2932,57 @@ dialog::backdrop {
     transform: translateX(-50%);
   }
 }
+.form-footer {
+  flex-wrap: wrap;
+}
+.form-footer .form-error {
+  flex: 0 0 100%;
+  order: -1;
+  margin: 0;
+  max-height: 110px;
+  overflow: auto;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.student-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font-size: 14px;
+  text-align: left;
+  color: var(--blue);
+}
+.student-switch svg {
+  flex-shrink: 0;
+}
+.pending-count {
+  display: inline-flex;
+  margin-left: 10px;
+  color: #ab500e;
+  font-size: 14px;
+  font-weight: 400;
+}
+@media (max-width: 680px) {
+  .form-footer > .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+  .form-footer > select {
+    flex: 1 1 100%;
+  }
+  .pending-count {
+    margin-left: 8px;
+  }
+  .auth-intro > h1,
+  .auth-intro > p,
+  .auth-steps {
+    display: none;
+  }
+  .auth-intro {
+    padding-bottom: 0;
+  }
+}

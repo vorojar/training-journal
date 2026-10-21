@@ -6,6 +6,7 @@ import {
   shiftDate,
   generateSessions,
   publishPlan,
+  planErrors,
   applyAdjustment,
   systemSchema,
   migrateLegacy,
@@ -256,4 +257,14 @@ describe("旧数据、输入与备份", () => {
       (await saveRecord("system", "cas-test", current.payload, 1)).version,
     ).toBe(2);
   });
+});
+
+it("方案错误只指出实际缺项", () => {
+  const p = plan();
+  p.progression = "";
+  p.exercises[0]!.rest = "";
+  const errors = planErrors(fixture(), p);
+  expect(errors).toContain("请填写加量／减量规则");
+  expect(errors).toContain("动作1：请填写休息");
+  expect(errors.join("；")).not.toContain("请填写周期目标");
 });

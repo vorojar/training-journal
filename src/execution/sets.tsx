@@ -1,7 +1,7 @@
+import { nextSet } from "./phone-flow";
 import { useState } from "react";
 import { Button, Input, Section } from "./ui";
 import {
-  uid,
   strengthSeries,
   type Session,
   type System,
@@ -31,8 +31,8 @@ export function SetRecorder({
             {!rows.length && (
               <p className="muted">
                 {readOnly
-                  ? "未填写逐组记录，原文字记录仍保留。"
-                  : "按实际完成填写；自重训练负重填0，计时动作填写实际秒数。"}
+                  ? "未填写逐组记录"
+                  : "自重负重填0；计时动作填秒数。"}
               </p>
             )}
             {rows.map((row, index) => (
@@ -49,7 +49,8 @@ export function SetRecorder({
                 ) : (
                   <>
                     <Input
-                      label={`${e.name}第${index + 1}组次数`}
+                      label="次数"
+                      ariaLabel={`${e.name}第${index + 1}组次数`}
                       type="number"
                       min={1}
                       max={1000}
@@ -60,7 +61,8 @@ export function SetRecorder({
                       }
                     />
                     <Input
-                      label={`${e.name}第${index + 1}组负重kg`}
+                      label="负重（kg）"
+                      ariaLabel={`${e.name}第${index + 1}组负重kg`}
                       type="number"
                       min={0}
                       max={2000}
@@ -71,7 +73,8 @@ export function SetRecorder({
                       }
                     />
                     <Input
-                      label={`${e.name}第${index + 1}组时长秒`}
+                      label="时长（秒）"
+                      ariaLabel={`${e.name}第${index + 1}组时长秒`}
                       type="number"
                       min={1}
                       max={86400}
@@ -108,22 +111,9 @@ export function SetRecorder({
             {!readOnly && (
               <Button
                 secondary
-                onClick={() =>
-                  onChange?.([
-                    ...logs,
-                    {
-                      id: uid(),
-                      exerciseId: e.id,
-                      exerciseName: e.name,
-                      reps: null,
-                      weight: null,
-                      seconds: null,
-                      done: false,
-                    },
-                  ])
-                }
+                onClick={() => onChange?.([...logs, nextSet(e, rows)])}
               >
-                添加一组 · {e.name}
+                {rows.length ? "再加一组" : "添加第一组"}
               </Button>
             )}
           </section>

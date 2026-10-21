@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   assessmentFields,
+  assessmentErrors,
   readiness,
   reviewProgress,
   today,
@@ -308,7 +309,7 @@ export function Metrics({
         <div className="chart-empty">
           <Activity size={30} />
           <strong>添加每日记录后显示趋势</strong>
-          <p>{metric[1]}暂无记录。曲线只使用实际填写的数据。</p>
+          <p>{metric[1]}暂无记录。</p>
         </div>
       )}
     </Section>
@@ -316,20 +317,33 @@ export function Metrics({
 }
 export function AssessmentScreen({ s, edit, owner = true }: ScreenProps) {
   const r = readiness(s);
+  const canConfirm =
+    !s.assessment.confirmed && assessmentErrors(s).length === 0;
   return (
     <>
       <Section
         title="训练前完整评估"
         action={
-          <Button onClick={() => edit({ type: "assessment" })}>
+          <Button
+            onClick={() =>
+              edit({
+                type: "assessment",
+                ...(canConfirm ? { confirm: true } : {}),
+              })
+            }
+          >
             <Pencil size={16} />
-            填写／更新评估
+            {canConfirm ? "确认评估" : "填写／更新评估"}
           </Button>
         }
       >
         <div className="assessment-progress">
           <Badge tone={r.confirmed ? "green" : "amber"}>
-            {r.confirmed ? "评估已确认" : "评估待完成"}
+            {r.confirmed
+              ? "评估已确认"
+              : canConfirm
+                ? "资料齐全，待确认"
+                : "评估待补充"}
           </Badge>
           <span>
             基本信息 {r.fields}/{r.total} 项
@@ -341,6 +355,11 @@ export function AssessmentScreen({ s, edit, owner = true }: ScreenProps) {
           </span>
           <span>{s.assessment.date}</span>
         </div>
+        {canConfirm && (
+          <button className="link" onClick={() => edit({ type: "assessment" })}>
+            修改评估内容
+          </button>
+        )}
         <div className="assessment-list">
           {assessmentFields.map(([k, label]) => (
             <details key={k}>
@@ -593,7 +612,7 @@ export function PlanScreen({ s, edit, go, owner = true }: ScreenProps) {
         <Section title="教练制定的个人训练方案">
           <Empty
             title="尚未制定训练方案"
-            description="不会自动套用通用处方。由教练根据你的评估，填写每个动作的方法与剂量。"
+            description="请教练根据评估制定。"
           />
         </Section>
       )}
@@ -631,7 +650,6 @@ export function CalendarScreen({
     <>
       <Section
         title="训练周期日历"
-        description="点击日期查看课次，点击课次填写完成情况。"
         action={<Button onClick={() => go("教练方案")}>管理训练方案</Button>}
       >
         <div className="calendar-toolbar">
@@ -954,7 +972,7 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
                       <p className="muted">
                         待处理 {progress.remaining.length}/
                         {progress.plans.length}{" "}
-                        份方案；全部处理后才完成本次复查排期。
+                        份方案。
                       </p>
                     </div>
                   ) : (
@@ -968,13 +986,11 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
         ) : (
           <Empty
             title="还没有复查记录"
-            description="复查需要记录同条件测量、程度变化、训练反应、下一步处理与下次日期。"
           />
         )}
       </Section>
       <Section
         title="方案调整与日历变更"
-        description="只更新生效日起尚未完成的训练；已完成的内容和旧版本记录保留。"
         action={
           plan ? (
             <Button
@@ -1005,7 +1021,6 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
         ) : (
           <Empty
             title="暂无调整记录"
-            description="调整需要填写原因、生效日期和新方案，确认后才会重排未来日历。"
           />
         )}
       </Section>

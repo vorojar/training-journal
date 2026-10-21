@@ -49,6 +49,7 @@ describe("可分享的页面与弹窗地址", () => {
     const edits: Edit[] = [
       { type: "profile" },
       { type: "assessment" },
+      { type: "assessment", confirm: true },
       { type: "problem" },
       { type: "problem", id: "issue-P3" },
       { type: "plan" },

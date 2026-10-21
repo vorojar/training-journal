@@ -42,7 +42,7 @@ export function navigationGroup(
 }
 export type Edit =
   | { type: "profile" }
-  | { type: "assessment" }
+  | { type: "assessment"; confirm?: boolean }
   | { type: "problem"; id?: string }
   | { type: "plan"; id?: string; adjust?: boolean; reviewId?: string }
   | { type: "session"; id: string }
@@ -86,6 +86,8 @@ export function parseRoute(hash: string, day = today()): Route {
     route.edit = { type: "profile" };
   else if (kind === "assessment" && id === "edit" && parts.length === 2)
     route.edit = { type: "assessment" };
+  else if (kind === "assessment" && id === "confirm" && parts.length === 2)
+    route.edit = { type: "assessment", confirm: true };
   else if (
     kind === "problem" &&
     parts.length === 2 &&
@@ -140,7 +142,7 @@ export function formatRoute(route: Route): string {
         suffix = "/profile";
         break;
       case "assessment":
-        suffix = "/assessment/edit";
+        suffix = "/assessment/" + (e.confirm ? "confirm" : "edit");
         break;
       case "problem":
         suffix = "/problem/" + (e.id || "new");

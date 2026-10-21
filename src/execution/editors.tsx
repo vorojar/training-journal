@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useRef, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   assessmentFields,
@@ -27,6 +27,12 @@ import {
   numberValue,
   weekdays,
 } from "./ui";
+import {
+  profileBaseline,
+  coachName,
+  confirmAssessment,
+  recordSession,
+} from "./phone-flow";
 import { SetRecorder } from "./sets";
 import { useDraftState, useDraft, DraftNotice } from "./drafts";
 import { EditorNavigationContext } from "./hash-navigation";
@@ -38,6 +44,8 @@ export function Editor({
   onSave,
   label = "保存",
   extra,
+  secondaryLabel,
+  onSecondarySave,
 }: {
   title: string;
   children: ReactNode;
@@ -45,6 +53,8 @@ export function Editor({
   onSave: () => Promise<void>;
   label?: string;
   extra?: ReactNode;
+  secondaryLabel?: string;
+  onSecondarySave?: () => Promise<void>;
 }) {
   const guard = useContext(EditorNavigationContext);
   const draft = useDraft();
@@ -61,6 +71,9 @@ export function Editor({
         }}
         onSubmit={(e) => {
           e.preventDefault();
+          const secondary =
+            (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") ===
+            "secondary";
           setBusy(true);
           guard.setSaving(true);
           setError("");
@@ -68,7 +81,9 @@ export function Editor({
             .then(() => {
               if (draft?.pending || draft?.needsReview)
                 throw new Error("请先处理草稿恢复提示，并核对当前云端内容");
-              return onSave();
+              return secondary && onSecondarySave
+                ? onSecondarySave()
+                : onSave();
             })
             .then(() => {
               draft?.clear();
@@ -84,16 +99,24 @@ export function Editor({
         }}
       >
         <fieldset disabled={draft?.pending || busy} className="editor-fields">
-          <div className="form-content">
-            {children}
+          <div className="form-content">{children}</div>
+          <footer className="form-footer">
             {error && (
-              <p className="error" role="alert">
+              <p className="error form-error" role="alert">
                 {error}
               </p>
             )}
-          </div>
-          <footer className="form-footer">
             {extra}
+            {secondaryLabel && (
+              <button
+                type="submit"
+                value="secondary"
+                className="btn secondary"
+                disabled={busy || draft?.pending || draft?.needsReview}
+              >
+                {secondaryLabel}
+              </button>
+            )}
             <Button
               type="submit"
               disabled={busy || draft?.pending || draft?.needsReview}
@@ -186,14 +209,21 @@ export function AssessmentEditor({
   s,
   save,
   close,
+  preferredCoach = "",
 }: {
+  preferredCoach?: string;
   s: System;
   save: Save;
   close: () => void;
 }) {
-  const [a, set] = useDraftState("assessment", {
+  const [a, set] = useDraftState<System["assessment"]>("assessment", {
     ...structuredClone(s.assessment),
     date: s.assessment.date || today(),
+    assessor: s.assessment.assessor || coachName(s, preferredCoach),
+    fields: {
+      ...s.assessment.fields,
+      baseline: s.assessment.fields.baseline || profileBaseline(s),
+    },
   });
   return (
     <Editor
@@ -219,7 +249,7 @@ export function AssessmentEditor({
       }}
     >
       <p className="muted">
-        不适用的项目请明确写“无／不适用”。尚未核实的信息可先保存，核实后再确认完成。
+        无相关情况填“无”，未核实先保存。
       </p>
       <div className="form-grid">
         <Input
@@ -306,7 +336,10 @@ export function ProblemEditor({
         await save({
           ...s,
           problems: [...s.problems.filter((x) => x.id !== p.id), p],
-          assessment: { ...s.assessment, confirmed: false },
+          assessment:
+            problem && JSON.stringify(problem) === JSON.stringify(p)
+              ? s.assessment
+              : { ...s.assessment, confirmed: false },
         });
       }}
     >
@@ -367,7 +400,9 @@ export function PlanEditor({
   close,
   adjust = false,
   reviewId = "",
+  preferredCoach = "",
 }: {
+  preferredCoach?: string;
   s: System;
   plan?: Plan;
   save: Save;
@@ -387,7 +422,7 @@ export function PlanEditor({
       : {
           id: uid(),
           name: "基础训练方案",
-          coach: s.profile.coach,
+          coach: coachName(s, preferredCoach),
           version: 1,
           status: "草稿",
           start: today(),
@@ -396,7 +431,7 @@ export function PlanEditor({
           time: "18:00",
           minutes: 45,
           nextReview: shiftDate(today(), 13),
-          goal: "",
+          goal: s.profile.goal === "尚未设置训练目标" ? "" : s.profile.goal,
           progression: "",
           cautions: s.assessment.cautions,
           exercises: [],
@@ -457,9 +492,6 @@ export function PlanEditor({
           });
       }}
     >
-      <p className="muted">
-        由教练填写个人训练处方。发布后，日历按选择的日期自动生成课次；每次训练保留当时的动作内容。
-      </p>
       <div className="form-grid">
         <Input
           label="方案名称"
@@ -737,15 +769,22 @@ export function SessionEditor({
   save,
   close,
   coachMode = false,
+  afterSave,
 }: {
   s: System;
   session: Session;
   coachMode?: boolean;
+  afterSave?: (date: string) => void;
   save: Save;
   close: () => void;
 }) {
   const [v, set] = useDraftState("session", () => structuredClone(session));
-  const [error, setError] = useState("");
+  const saved = useRef(false);
+  const persist: Save = async (next) => {
+    await save(next);
+    saved.current = true;
+  };
+  const closeEditor = () => saved.current && afterSave ? afterSave(v.date) : close();
   const details = (
     <>
       <div className="callout">
@@ -777,32 +816,16 @@ export function SessionEditor({
     const content = (
       <>
         {details}
-        <SetRecorder session={v} readOnly />
+        {!!v.setLogs?.length && <SetRecorder session={v} readOnly />}
         <dl>
-          <div>
-            <dt>完成情况</dt>
-            <dd>{v.status}</dd>
-          </div>
-          <div>
-            <dt>实际完成</dt>
-            <dd>{v.actual || "学员尚未填写"}</dd>
-          </div>
-          <div>
-            <dt>费力程度</dt>
-            <dd>{v.effort ?? "尚未填写"}</dd>
-          </div>
-          <div>
-            <dt>训练反应</dt>
-            <dd>{v.symptoms || "学员尚未填写"}</dd>
-          </div>
-          <div>
-            <dt>次日恢复</dt>
-            <dd>{v.nextDay || "学员尚未填写"}</dd>
-          </div>
+          {([
+            ["完成情况", v.status], ["补充记录", v.actual],
+            ["费力程度", v.effort], ["训练反应", v.symptoms],
+            ["次日恢复", v.nextDay],
+          ] as [string, string | number | null][])
+            .filter(([, value]) => value !== "" && value !== null)
+            .map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
         </dl>
-        <p className="muted">
-          实际训练情况由学员本人填写。教练可以调整待完成课次的日期和时间；方案内容请通过“复查调整”修改。
-        </p>
       </>
     );
     if (!["待完成", "已暂停"].includes(v.status))
@@ -814,16 +837,15 @@ export function SessionEditor({
     return (
       <Editor
         title={`调整课次 · ${v.title}`}
-        onClose={close}
+        onClose={closeEditor}
         onSave={async () => {
           if (v.date < today()) throw new Error("请将课次安排在今天或未来");
-          await save({
+          await persist({
             ...s,
             sessions: s.sessions.map((x) => (x.id === v.id ? v : x)),
           });
         }}
       >
-        {content}
         <div className="form-grid">
           <Input
             label="训练日期"
@@ -840,6 +862,7 @@ export function SessionEditor({
             onChange={(time) => set({ ...v, time })}
           />
         </div>
+        {content}
       </Editor>
     );
   }
@@ -858,33 +881,19 @@ export function SessionEditor({
   return (
     <Editor
       title={`${v.date} · ${v.title}`}
-      onClose={close}
-      onSave={async () => {
-        if (v.status === "已完成" && v.date > today())
-          throw new Error("未来的训练不能提前标记为已完成，请在训练后记录。");
-        if (
-          v.status === "已完成" &&
-          !v.actual.trim() &&
-          !v.setLogs?.some((row) => row.done)
-        )
-          throw new Error("请填写实际完成的动作、组数、次数与负荷。");
-        if (v.status === "已跳过" && !v.symptoms.trim())
-          throw new Error("请在身体反应栏填写跳过原因。");
-        await save({
-          ...s,
-          sessions: s.sessions.map((x) =>
-            x.id === v.id
-              ? {
-                  ...v,
-                  completedAt:
-                    v.status === "已完成"
-                      ? v.completedAt || new Date().toISOString()
-                      : "",
-                }
-              : x,
-          ),
-        });
-      }}
+      onClose={closeEditor}
+      label={
+        v.status === "已跳过"
+          ? "保存跳过记录"
+          : v.status === "已完成"
+            ? "保存完成记录"
+            : "完成训练"
+      }
+      secondaryLabel={v.status === "待完成" ? "保存进度" : undefined}
+      onSecondarySave={() => persist(recordSession(s, v, "待完成"))}
+      onSave={() =>
+        persist(recordSession(s, v, v.status === "已跳过" ? "已跳过" : "已完成"))
+      }
     >
       {details}
       <SetRecorder session={v} onChange={(setLogs) => set({ ...v, setLogs })} />
@@ -907,32 +916,24 @@ export function SessionEditor({
           onChange={(value) => set({ ...v, effort: numberValue(value) })}
         />
         <TextArea
-          label="实际完成内容"
-          hint="逐动作写实际组数、次数／时长、负荷及未完成部分"
-          value={v.actual}
-          onChange={(value) => set({ ...v, actual: value })}
-        />
-        <TextArea
           label="训练中身体反应／跳过原因"
           value={v.symptoms}
           onChange={(value) => set({ ...v, symptoms: value })}
         />
-        <TextArea
-          label="次日恢复与不适"
-          value={v.nextDay}
-          onChange={(value) => set({ ...v, nextDay: value })}
-        />
       </div>
-      {error && <p role="alert">{error}</p>}
-      <Button
+      <details open={!!(v.actual || v.nextDay)}>
+        <summary>补充记录（可选）</summary>
+        <TextArea label="实际完成内容" hint="有逐组记录可留空" value={v.actual}
+          onChange={(value) => set({ ...v, actual: value })} />
+        <TextArea label="次日恢复与不适" value={v.nextDay}
+          onChange={(value) => set({ ...v, nextDay: value })} />
+      </details>
+      {v.status === "待完成" && <Button
         secondary
-        onClick={() => {
-          if (v.status === "已完成") setError("已完成记录请保留原训练日期。");
-          else set({ ...v, date: shiftDate(v.date, 1) });
-        }}
+        onClick={() => set({ ...v, date: shiftDate(v.date, 1) })}
       >
-        将待完成训练顺延一天
-      </Button>
+        顺延一天
+      </Button>}
     </Editor>
   );
 }
@@ -1036,7 +1037,9 @@ export function ReviewEditor({
   review,
   save,
   close,
+  preferredCoach = "",
 }: {
+  preferredCoach?: string;
   s: System;
   review?: Review;
   save: Save;
@@ -1049,7 +1052,7 @@ export function ReviewEditor({
       : {
           id: uid(),
           date: today(),
-          coach: s.profile.coach,
+          coach: coachName(s, preferredCoach),
           conclusion: "",
           nextDate: shiftDate(today(), 14),
           action: "继续原计划",
@@ -1222,8 +1225,55 @@ export function ReviewEditor({
         </div>
       )}
       <p className="muted">
-        保存后会更新问题分级。选择“调整后续计划”时，请继续进入方案调整，预览并确认新的日历排程。
+        保存后更新分级；调整日历需继续确认方案。
       </p>
+    </Editor>
+  );
+}
+
+export function AssessmentConfirmation({
+  s,
+  save,
+  close,
+}: {
+  s: System;
+  save: Save;
+  close: () => void;
+}) {
+  return (
+    <Editor
+      title="确认评估与训练边界"
+      onClose={close}
+      label={s.trainingHold?.active ? "确认并恢复训练" : "确认评估"}
+      onSave={() => save(confirmAssessment(s))}
+    >
+      <p>
+        已填写8项评估，{s.problems.length}
+        个问题。请核对分级、基线、目标及复查方法。
+      </p>
+      <dl>
+        <div>
+          <dt>评估人</dt>
+          <dd>{s.assessment.assessor}</dd>
+        </div>
+        <div>
+          <dt>评估日期</dt>
+          <dd>{s.assessment.date}</dd>
+        </div>
+      </dl>
+      {s.problems.map((p) => (
+        <p key={p.id}>
+          <strong>{p.name} · {p.severity}</strong><br />
+          依据：{p.basis}<br />
+          基线：{p.measurement} · 目标：{p.goal}<br />
+          复查：{p.retest}
+          {p.cautions && <><br />注意：{p.cautions}</>}
+        </p>
+      ))}
+      <h3>个人注意事项</h3>
+      <p className="preserve">{s.assessment.cautions}</p>
+      <h3>停止与求助条件</h3>
+      <p className="preserve">{s.assessment.stopRules}</p>
     </Editor>
   );
 }

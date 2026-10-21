@@ -21,7 +21,9 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
     [email, setEmail] = useState(""),
     [link, setLink] = useState(""),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [copied, setCopied] = useState(false),
+    [collaborationOpen, setCollaborationOpen] = useState(false);
   const path = "/api/spaces/" + cloud.space.id;
   async function load() {
     if (cloud.space.role === "owner") {
@@ -34,8 +36,22 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
     }
   }
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        void load().catch((e) => setError(e.message));
+    };
+    refresh();
+    const timer = setInterval(refresh, 20000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
   }, [cloud.space.id]);
+  const pending = members.filter((m) => m.status === "pending").length;
+  useEffect(() => {
+    if (pending) setCollaborationOpen(true);
+  }, [pending]);
   async function perform(action: () => Promise<unknown>) {
     setError("");
     setBusy(true);
@@ -102,8 +118,17 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
           </p>
         )}
       </Section>
-      <details className="settings-disclosure">
-        <summary>教练协作</summary>
+      <details
+        className="settings-disclosure"
+        open={collaborationOpen}
+        onToggle={(e) => setCollaborationOpen(e.currentTarget.open)}
+      >
+        <summary>
+          教练协作
+          {pending > 0 && (
+            <span className="pending-count">{pending}个待确认</span>
+          )}
+        </summary>
         {cloud.space.role === "owner" ? (
           <Section
             title="教练邀请与授权"
@@ -121,6 +146,7 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
                     },
                   );
                   setLink(result.url);
+                  setCopied(false);
                 });
               }}
             >
@@ -139,6 +165,17 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
               <div className="callout">
                 <strong>请将此链接发给你的教练</strong>
                 <textarea aria-label="教练邀请链接" readOnly value={link} />
+                <Button
+                  secondary
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(link)
+                      .then(() => setCopied(true))
+                      .catch(() => setError("复制失败，请长按链接复制"))
+                  }
+                >
+                  {copied ? "已复制" : "复制邀请链接"}
+                </Button>
                 <p>
                   链接只显示这一次。不要公开发布；教练接受后，还需你在下方确认。
                 </p>

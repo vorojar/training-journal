@@ -1,3 +1,4 @@
+import { coachName } from "./phone-flow";
 import { RecordMenu } from "./record-menu";
 import { useEffect, useState } from "react";
 import {
@@ -435,7 +436,8 @@ export function MeasurementEditor({
   save,
   close,
   id,
-}: SaveProps & { id?: string }) {
+  preferredCoach = "",
+}: SaveProps & { id?: string; preferredCoach?: string }) {
   const [m, set] = useDraftState<Measurement>(
     "measurement",
     s.measurements?.find((x) => x.id === id) ?? {
@@ -447,7 +449,7 @@ export function MeasurementEditor({
       unit: "",
       side: "整体",
       method: "",
-      assessor: s.profile.coach,
+      assessor: coachName(s, preferredCoach),
       target: null,
       notes: "",
       photo: "",
@@ -968,7 +970,13 @@ type Student = {
   completed: number;
   updated_at: string;
 };
-export function CoachScreen({ cloud }: { cloud?: CloudConnection }) {
+export function CoachScreen({
+  cloud,
+  go,
+}: {
+  cloud?: CloudConnection;
+  go?: (view: string) => void;
+}) {
   const [rows, set] = useState<Student[]>([]),
     [filter, setFilter] = useState("全部"),
     [error, setError] = useState(""),
@@ -997,13 +1005,28 @@ export function CoachScreen({ cloud }: { cloud?: CloudConnection }) {
   );
   return (
     <Section
-      title="教练工作台"
-      description="只显示仍在授权中的学员，集中处理评估、复查和方案调整。"
+      title="学员待办"
       action={
         cloud && (
-          <Button secondary disabled={busy} onClick={() => void load()}>
-            {busy ? "更新中…" : "刷新待办"}
-          </Button>
+          <div className="row-actions">
+            {cloud.space.role === "coach" && (
+              <Button
+                secondary
+                onClick={() => {
+                  const own = cloud.spaces.find((x) => x.role === "owner");
+                  if (own) {
+                    go?.("我的总览");
+                    cloud.select(own.id);
+                  }
+                }}
+              >
+                我的空间
+              </Button>
+            )}
+            <Button secondary disabled={busy} onClick={() => void load()}>
+              {busy ? "更新中…" : "刷新待办"}
+            </Button>
+          </div>
         )
       }
     >
@@ -1061,7 +1084,7 @@ export function CoachScreen({ cloud }: { cloud?: CloudConnection }) {
           {!shown.length && (
             <Empty
               title={rows.length ? "当前筛选下暂无待办" : "暂无授权学员"}
-              description="学员从“资料与备份”邀请教练并确认授权后，会出现在这里。"
+              description="学员在“设置 → 教练协作”邀请并确认授权后，会出现在这里。"
             />
           )}
         </>

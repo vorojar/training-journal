@@ -16,6 +16,7 @@ import {
   Upload,
   Settings,
   ChevronRight,
+  ChevronDown,
   X,
   Check,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import {
 import {
   ProfileEditor,
   AssessmentEditor,
+  AssessmentConfirmation,
   ProblemEditor,
   PlanEditor,
   SessionEditor,
@@ -463,10 +465,21 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                       : ""}
                   </p>
                 )}
-              {cloud?.space.role === "coach" && (
-                <p className="student-context">
-                  学员：{cloud.space.owner_name}
-                </p>
+              {hasStudents && route.page !== "coach" && (
+                <button
+                  className="student-switch"
+                  onClick={() => go("教练工作台")}
+                  aria-label={
+                    cloud?.space.role === "coach"
+                      ? "切换学员，当前学员：" + cloud.space.owner_name
+                      : "我的学员"
+                  }
+                >
+                  {cloud?.space.role === "coach"
+                    ? "学员：" + cloud.space.owner_name
+                    : "我的学员"}
+                  <ChevronDown size={16} />
+                </button>
               )}
             </div>
             {cloud && (
@@ -588,7 +601,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
           ) : view === "量化评估" ? (
             <MeasurementsScreen {...props} />
           ) : view === "教练工作台" ? (
-            <CoachScreen cloud={cloud} />
+            <CoachScreen cloud={cloud} go={go} />
           ) : view === "方案模板" ? (
             <TemplateScreen
               key={String(!!route.edit)}
@@ -610,12 +623,6 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                   历史与回收站
                   <ChevronRight size={18} />
                 </button>
-                {hasStudents && (
-                  <button onClick={() => go("教练工作台")}>
-                    教练工作台
-                    <ChevronRight size={18} />
-                  </button>
-                )}
               </div>
               {cloud && (
                 <CloudAccount
@@ -816,10 +823,20 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
             {(() => {
               const { edit: e, snapshot: b } = editing,
                 close = () => navigation.close(),
-                shared = { s: b, save, close };
+                shared = {
+                  s: b,
+                  save,
+                  close,
+                  preferredCoach:
+                    cloud?.space.role === "coach" ? cloud.user.name : "",
+                };
               if (e.type === "profile") return <ProfileEditor {...shared} />;
               if (e.type === "assessment")
-                return <AssessmentEditor {...shared} />;
+                return e.confirm ? (
+                  <AssessmentConfirmation {...shared} />
+                ) : (
+                  <AssessmentEditor {...shared} />
+                );
               if (e.type === "problem")
                 return (
                   <ProblemEditor
@@ -865,6 +882,15 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                 <SessionEditor
                   {...shared}
                   session={session}
+                  afterSave={(date) => {
+                    if (route.page === "calendar" && date !== route.calendar.date)
+                      navigation.navigate({
+                        ...route,
+                        edit: undefined,
+                        calendar: { month: date.slice(0, 7), date },
+                      }, { replace: true });
+                    else close();
+                  }}
                   coachMode={cloud?.space.role === "coach"}
                 />
               ) : null;

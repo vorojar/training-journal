@@ -161,6 +161,7 @@ export default function CloudRoot() {
         status,
         refresh,
         select: (id) => {
+          if (current.current === id) return;
           current.current = id;
           setDoc(null);
           setSelected(id);
@@ -238,7 +239,6 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
       </section>
       <section className="auth-panel">
         <h2>{mode === "login" ? "登录你的健身空间" : "注册独立健身空间"}</h2>
-        <p>每个人的数据独立保存。教练需要邀请和授权，才能访问学员资料。</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -297,7 +297,7 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
           {mode === "login" ? "还没有账号？注册使用" : "已有账号？返回登录"}
         </button>
         <small>
-          邮箱用于登录标识；请妥善保存密码。目前尚未开通邮件验证和邮件找回，邀请还需空间主人确认后才生效。
+          请保存好密码，暂不支持邮件找回。
         </small>
       </section>
     </div>
@@ -324,7 +324,7 @@ function InvitePage({
         </p>
         <p>
           {accepted
-            ? "请联系学员在“账号与教练协作”中确认授权。确认后，你可以选择学员空间填写评估、制定方案及调整日历。"
+            ? "请联系学员打开“设置 → 教练协作”确认授权。确认后，点页面顶部“我的学员”即可开始评估、制定方案和调整日历。"
             : "你将申请以教练身份访问邀请人的健身空间。只有邀请邮箱匹配、学员再次确认授权后，才能查看健康资料。"}
         </p>
         {error && (

@@ -437,18 +437,16 @@ export function planErrors(s: System, p: Plan): string[] {
     errors.push("所选周期内没有对应星期，请调整日期或训练日");
   if (!p.nextReview || p.nextReview < p.start || p.nextReview > p.end)
     errors.push("请填写周期内的下次复查日期");
-  if (!p.goal.trim() || !p.progression.trim())
-    errors.push("请填写周期目标和加量／减量规则");
+  if (!p.goal.trim()) errors.push("请填写周期目标");
+  if (!p.progression.trim()) errors.push("请填写加量／减量规则");
   if (!p.exercises.length) errors.push("请至少填写一个训练动作");
-  if (
-    p.exercises.some(
-      (e) =>
-        ![e.name, e.method, e.sets, e.reps, e.load, e.rest].every((v) =>
-          v.trim(),
-        ),
-    )
-  )
-    errors.push("每个动作都需要方法、组数、次数／时长、负荷和休息");
+  p.exercises.forEach((e, i) => {
+    const missing = ([
+      ["名称", e.name], ["方法", e.method], ["组数", e.sets],
+      ["次数／时长", e.reps], ["负荷", e.load], ["休息", e.rest],
+    ] as [string, string][]).filter(([, value]) => !value.trim()).map(([label]) => label);
+    if (missing.length) errors.push(`动作${i + 1}：请填写${missing.join("、")}`);
+  });
   return errors;
 }
 export function generateSessions(p: Plan, from = p.start): Session[] {

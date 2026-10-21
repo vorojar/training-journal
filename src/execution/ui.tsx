@@ -118,6 +118,7 @@ export function TextArea({
 }
 export function Input({
   label,
+  ariaLabel,
   value,
   onChange,
   type = "text",
@@ -128,6 +129,7 @@ export function Input({
   hint,
 }: {
   label: string;
+  ariaLabel?: string;
   value: string | number | null;
   onChange: (v: string) => void;
   type?: string;
@@ -140,7 +142,7 @@ export function Input({
   return (
     <Field label={label} hint={hint}>
       <input
-        aria-label={label}
+        aria-label={ariaLabel || label}
         type={type}
         min={min}
         max={max}
