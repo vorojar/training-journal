@@ -161,7 +161,7 @@ export function useDraftState<T>(
 }
 export function DraftNotice() {
   const d = useDraft();
-  if (!d) return null;
+  if (!d || (!d.pending && !d.needsReview && !d.error)) return null;
   return (
     <div className="draft-notice">
       {d.pending ? (
@@ -191,9 +191,7 @@ export function DraftNotice() {
             放弃草稿，使用最新资料
           </button>
         </>
-      ) : (
-        <small>填写内容自动保存为本设备草稿；点击保存后同步到云端。</small>
-      )}
+      ) : null}
       {d.error && (
         <p role="alert" className="error">
           {d.error}

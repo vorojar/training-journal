@@ -1,9 +1,9 @@
+import { RecordMenu } from "./record-menu";
 import { useEffect, useState } from "react";
 import {
   type System,
   type Measurement,
   type PlanTemplate,
-  type Plan,
   uid,
   today,
   systemSchema,
@@ -35,7 +35,7 @@ import { Editor } from "./editors";
 import { useDraftState, useDraft } from "./drafts";
 import { request, send, type CloudConnection } from "../cloud/client";
 import type { Edit } from "./routes";
-type Props = { s: System; edit: (e: Edit) => void };
+type Props = { s: System; edit: (e: Edit) => void; owner?: boolean };
 type SaveProps = {
   s: System;
   save: (s: System, restore?: HistorySelection) => Promise<void>;
@@ -46,8 +46,7 @@ export function RecordsScreen({
   edit,
   cloud,
 }: { cloud?: CloudConnection } & Props) {
-  const [kind, setKind] = useState<Kind>("daily"),
-    [history, setHistory] = useState<
+  const [history, setHistory] = useState<
       {
         version: number;
         action: string;
@@ -78,74 +77,8 @@ export function RecordsScreen({
   useEffect(() => {
     void load();
   }, [cloud?.space.id, cloud?.document.version]);
-  const rows = s[collections[kind]] ?? [];
   return (
     <>
-      <Section
-        title="记录纠错与归档"
-        description="修改保留云端版本；归档移入回收站，可随时恢复。已发布方案通过调整入口修改。"
-      >
-        <label className="field">
-          记录类型
-          <select
-            aria-label="记录类型"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as Kind)}
-          >
-            {Object.entries(labels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="muted">
-          当前类型：{labels[kind]} · {rows.length} 条
-        </p>
-        {rows.length ? (
-          <div className="record-list">
-            {rows.map((row) => (
-              <div className="access-row" key={row.id}>
-                <span>
-                  <strong>{recordTitle(kind, row)}</strong>
-                  <small>{"date" in row ? String(row.date) : ""}</small>
-                </span>
-                <div className="backup-actions">
-                  <Button
-                    secondary
-                    disabled={!owner && ["daily", "session"].includes(kind)}
-                    onClick={() => {
-                      if (kind === "plan")
-                        edit({
-                          type: "plan",
-                          id: row.id,
-                          adjust: (row as Plan).status === "已发布",
-                        });
-                      else if (kind === "session")
-                        edit({ type: "session", id: row.id });
-                      else edit({ type: kind, id: row.id } as Edit);
-                    }}
-                  >
-                    纠正记录
-                  </Button>
-                  {owner && (
-                    <Button
-                      secondary
-                      onClick={() =>
-                        edit({ type: "archive", kind, id: row.id })
-                      }
-                    >
-                      归档
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty title="暂无该类记录" />
-        )}
-      </Section>
       <Section
         title="回收站"
         description="方案恢复为草稿；归档方案时，未完成课次会取消，已完成记录保留。"
@@ -174,7 +107,7 @@ export function RecordsScreen({
             </div>
           ))
         ) : (
-          <Empty title="回收站为空" />
+          <p className="muted">回收站为空</p>
         )}
       </Section>
       {cloud && (
@@ -704,13 +637,12 @@ function MeasurementChart({ rows }: { rows: Measurement[] }) {
     </svg>
   );
 }
-export function MeasurementsScreen({ s, edit }: Props) {
+export function MeasurementsScreen({ s, edit, owner = true }: Props) {
   const groups = measurementGroups(s);
   return (
     <>
       <Section
-        title="量化评估与改善对比"
-        description="按问题、指标、单位、侧别和测量方法分别比较；不自动推断医学分级。"
+        title="测量记录"
         action={
           <Button onClick={() => edit({ type: "measurement" })}>
             添加测量
@@ -731,52 +663,69 @@ export function MeasurementsScreen({ s, edit }: Props) {
               <h3>
                 {a.metric} · {a.side}
               </h3>
-              <p>
-                {s.problems.find((p) => p.id === a.problemId)?.name ??
-                  "身体通用指标"}{" "}
-                · {a.method}
-              </p>
-              <p>
-                基线 {a.value} → 最新 {b.value} {a.unit} · 变化{" "}
-                {(b.value - a.value).toFixed(2)} {a.unit}
-                {b.target !== null
-                  ? ` · 目标 ${b.target} ${b.unit} · 距目标 ${Math.abs(b.target - b.value).toFixed(2)} ${b.unit}`
-                  : ""}
-              </p>
+              {a.problemId && (
+                <p className="muted">
+                  {s.problems.find((p) => p.id === a.problemId)?.name}
+                </p>
+              )}
+              <dl className="measurement-summary">
+                <div>
+                  <dt>基线</dt>
+                  <dd>
+                    {a.value} {a.unit}
+                  </dd>
+                </div>
+                <div>
+                  <dt>最新</dt>
+                  <dd>
+                    {b.value} {b.unit}
+                  </dd>
+                </div>
+                <div>
+                  <dt>变化</dt>
+                  <dd>
+                    {(b.value - a.value).toFixed(2)} {a.unit}
+                  </dd>
+                </div>
+                {b.target !== null && (
+                  <div>
+                    <dt>目标</dt>
+                    <dd>
+                      {b.target} {b.unit}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <details className="measure-method">
+                <summary>测量方法</summary>
+                <p>{a.method}</p>
+              </details>
               <MeasurementChart rows={rows} />
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>日期</th>
-                      <th>测量</th>
-                      <th>评估人</th>
-                      <th>记录</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.date}</td>
-                        <td>
+              <details className="measurement-history">
+                <summary>测量记录（{rows.length}）</summary>
+                <div className="measurement-records">
+                  {rows.map((m) => (
+                    <div className="measurement-row" key={m.id}>
+                      <div>
+                        <strong>
                           {m.value} {m.unit}
-                        </td>
-                        <td>{m.assessor}</td>
-                        <td>
-                          <button
-                            className="link"
-                            onClick={() =>
-                              edit({ type: "measurement", id: m.id })
-                            }
-                          >
-                            查看／纠正
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </strong>
+                        <small>
+                          {m.date} · {m.assessor}
+                        </small>
+                      </div>
+                      <RecordMenu
+                        id={m.id}
+                        kind="measurement"
+                        name={m.metric + " " + m.date}
+                        edit={edit}
+                        owner={owner}
+                        correction={{ type: "measurement", id: m.id }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </details>
               {rows.filter((m) => m.photo).length > 0 && (
                 <details>
                   <summary>对比评估照片</summary>
@@ -823,12 +772,7 @@ export function TemplateScreen({
     <>
       <Section
         title="我的方案模板"
-        description="保存动作、训练剂量和周期设置，创建时生成新草稿。可跨自己的授权空间复用，不携带学员姓名、问题编号或完成记录。"
-        action={
-          <a className="link" href="#plans">
-            查看方案草稿
-          </a>
-        }
+        description="选择模板创建独立草稿，核对后发布。"
       >
         {error && <p className="error">{error}</p>}
         {items.length ? (
@@ -848,26 +792,8 @@ export function TemplateScreen({
         ) : (
           <Empty
             title="还没有保存模板"
-            description="从下方已有方案保存一个模板。"
+            description="在当前方案的“更多”中保存模板。"
           />
-        )}
-      </Section>
-      <Section title="从方案保存模板">
-        {s.plans.map((p) => (
-          <div className="access-row" key={p.id}>
-            <span>
-              {p.name} · v{p.version}
-            </span>
-            <Button
-              secondary
-              onClick={() => edit({ type: "template", id: "save_" + p.id })}
-            >
-              保存为模板
-            </Button>
-          </div>
-        ))}
-        {!s.plans.length && (
-          <Button onClick={() => edit({ type: "plan" })}>先制定方案</Button>
         )}
       </Section>
     </>

@@ -1,3 +1,4 @@
+import { Bell } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button, Section } from "../execution/ui";
 import { today, reviewProgress, type System } from "../execution/domain";
@@ -25,50 +26,39 @@ export function ReminderTasks({
   s: System;
   go: (view: string) => void;
 }) {
-  const overdue = s.sessions.filter(
-    (x) => x.status === "待完成" && x.date <= today(),
-  );
-  const plans = s.plans.filter((p) => p.status === "已发布");
-  const reviews = plans.filter((p) => {
-    const latest = s.reviews.find(
-      (r) => !r.planIds || r.planIds.includes(p.id),
-    );
-    return (
-      (latest?.nextDate || p.nextReview) &&
-      (latest?.nextDate || p.nextReview) <= today()
-    );
-  });
+  const day = today(s.profile.timeZone),
+    overdue = s.sessions.filter((x) => x.status === "待完成" && x.date < day);
+  const due = s.plans
+    .filter((p) => p.status === "已发布")
+    .filter((p) => {
+      const latest = s.reviews.find(
+        (r) => !r.planIds || r.planIds.includes(p.id),
+      );
+      const date = latest?.nextDate || p.nextReview;
+      return date && date <= day;
+    });
   const pending = s.reviews.filter(
     (r) => r.action === "调整后续计划" && reviewProgress(s, r).remaining.length,
   );
+  if (!overdue.length && !due.length && !pending.length) return null;
   return (
-    <Section title="提醒与待办">
-      {s.trainingHold?.active ? (
-        <p className="amber-text">训练已暂停，请先完成重新评估和恢复确认。</p>
-      ) : (
-        <p>
-          {overdue.length
-            ? `今天及以前有 ${overdue.length} 次训练待记录。`
-            : "当前没有待记录的到期训练。"}
-        </p>
-      )}
-      {reviews.length > 0 && <p>有 {reviews.length} 份方案已到复查日期。</p>}
-      {pending.length > 0 && (
-        <p>有 {pending.length} 次复查的方案调整尚未全部处理。</p>
-      )}
-      <div className="backup-actions">
-        <Button
-          secondary
-          onClick={() => go(s.trainingHold?.active ? "训练前评估" : "训练日历")}
-        >
-          {s.trainingHold?.active ? "重新评估" : "查看训练日历"}
-        </Button>
-        <Button secondary onClick={() => go("复查与调整")}>
-          查看复查待办
-        </Button>
-        <Button secondary onClick={() => go("资料与备份")}>
-          提醒设置与更新通知
-        </Button>
+    <Section title="待办">
+      <div className="task-list">
+        {!!overdue.length && (
+          <button onClick={() => go("训练日历")}>
+            {overdue.length} 次过往训练待记录<span>查看日历 →</span>
+          </button>
+        )}
+        {!!due.length && (
+          <button onClick={() => go("复查与调整")}>
+            {due.length} 份方案到期复查<span>去复查 →</span>
+          </button>
+        )}
+        {!!pending.length && (
+          <button onClick={() => go("复查与调整")}>
+            {pending.length} 次复查有待调整方案<span>去处理 →</span>
+          </button>
+        )}
       </div>
     </Section>
   );
@@ -100,9 +90,15 @@ export function UpdateBell({
     };
   }, [cloud.user.id]);
   return (
-    <Button secondary onClick={open}>
-      提醒{count ? ` · ${count}条未读` : ""}
-    </Button>
+    <button
+      type="button"
+      className="header-icon"
+      onClick={open}
+      aria-label={count ? `提醒，${count}条未读` : "提醒"}
+    >
+      <Bell size={20} />
+      {count > 0 && <span className="unread-dot" />}
+    </button>
   );
 }
 export function NotificationCenter({ cloud }: { cloud: CloudConnection }) {
@@ -202,10 +198,7 @@ export function NotificationCenter({ cloud }: { cloud: CloudConnection }) {
   }
   return (
     <>
-      <Section
-        title="提醒设置"
-        description="站内待办始终可查看。开启系统提醒后，训练、复查和资料更新可推送到此设备；锁屏通知只显示通用提示，不包含身体数据。"
-      >
+      <Section title="提醒设置" description="将训练、复查和更新推送到此设备。">
         <div className="reminder-options">
           {(["training", "review", "updates"] as const).map((field, i) => (
             <label className="checkline" key={field}>
@@ -311,10 +304,7 @@ export function NotificationCenter({ cloud }: { cloud: CloudConnection }) {
         )}
         {status && <p role="status">{status}</p>}
       </Section>
-      <Section
-        title="通知中心"
-        description="显示最近50条更新与提醒；点击后进入对应空间。"
-      >
+      <Section title="通知中心" description="点击通知进入对应空间。">
         {!notes.length ? (
           <p className="muted">暂时没有通知。</p>
         ) : (

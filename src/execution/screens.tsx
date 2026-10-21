@@ -1,18 +1,12 @@
+import { RecordMenu } from "./record-menu";
 import { useState } from "react";
 import {
-  ArrowRight,
-  CalendarDays,
-  ClipboardCheck,
-  FileText,
   Plus,
   ChevronLeft,
   ChevronRight,
   Activity,
   AlertTriangle,
-  Watch,
-  Smartphone,
   Pencil,
-  CheckCircle2,
 } from "lucide-react";
 import {
   assessmentFields,
@@ -22,7 +16,6 @@ import {
   shiftDate,
   type System,
   type Session,
-  type Plan,
 } from "./domain";
 import { Badge, Button, Empty, LinkButton, Section, weekdays } from "./ui";
 import type { Edit, CalendarLocation } from "./routes";
@@ -30,207 +23,120 @@ export type ScreenProps = {
   s: System;
   edit: (v: Edit) => void;
   go: (v: string) => void;
+  owner?: boolean;
 };
-export function Flow({ s, go }: Pick<ScreenProps, "s" | "go">) {
-  const steps = [
-    ["完整评估", "全面了解身体状况", "训练前评估"],
-    ["教练制定", "基于评估制定个人方案", "教练方案"],
-    ["日历执行", "按计划训练与记录", "训练日历"],
-    ["复查调整", "复评问题，调整后续计划", "复查与调整"],
-  ];
-  const stage = !s.assessment.confirmed
-    ? 0
-    : !s.plans.some((p) => p.status === "已发布")
-      ? 1
-      : !s.reviews.length
-        ? 2
-        : 3;
-  return (
-    <div className="flow">
-      {steps.map(([title, desc, target], i) => (
-        <button
-          key={title}
-          onClick={() => go(target!)}
-          className={i === stage ? "current" : ""}
-        >
-          <span className="step-no">
-            {i < stage ? (
-              <CheckCircle2 size={23} />
-            ) : (
-              String(i + 1).padStart(2, "0")
-            )}
-          </span>
-          <span>
-            <strong>{title}</strong>
-            <small>{desc}</small>
-          </span>
-          {i < 3 && <ChevronRight size={20} />}
-        </button>
-      ))}
-    </div>
-  );
-}
 import { ReminderTasks } from "../cloud/reminders";
 import { StrengthProgress } from "./sets";
-export function Overview({ s, edit, go }: ScreenProps) {
-  const ready = readiness(s),
+export function Overview({ s, edit, go, owner = true }: ScreenProps) {
+  const day = today(s.profile.timeZone),
     sessions = s.sessions.filter(
-      (x) => x.date === today() && x.status !== "已取消",
+      (x) => x.date === day && x.status !== "已取消",
     );
-  const last = s.adjustments[0];
+  const published = s.plans.some((p) => p.status === "已发布");
+  const next =
+    s.reviews[0]?.nextDate ||
+    s.plans.find((p) => p.status === "已发布")?.nextReview;
+  const entries = [...s.daily].sort((a, b) => a.date.localeCompare(b.date));
   return (
     <>
-      <Flow s={s} go={go} />
-      <div className="dashboard">
-        <div className="primary-column">
-          <Section title="今天的安排" action={<time>{today()}</time>}>
-            {sessions.length ? (
-              <div className="session-list">
-                {sessions.map((v) => (
-                  <SessionRow
-                    key={v.id}
-                    v={v}
-                    onClick={() => edit({ type: "session", id: v.id })}
-                  />
-                ))}
-              </div>
-            ) : (
-              <Empty
-                title="尚未安排训练"
-                description={
-                  s.plans.some((p) => p.status === "已发布")
-                    ? "今天没有排课。可以查看日历，继续记录身体和恢复情况。"
-                    : "先完成评估并获取教练方案，再按照日历执行。"
-                }
-                action={
-                  <Button
-                    onClick={() =>
-                      go(s.assessment.confirmed ? "教练方案" : "训练前评估")
-                    }
-                  >
-                    {s.assessment.confirmed
-                      ? "制定第一份方案"
-                      : "完善训练前评估"}
-                    <ArrowRight size={17} />
-                  </Button>
-                }
+      <Section title="今天的训练" action={<time>{day}</time>}>
+        {sessions.length ? (
+          <div className="session-list">
+            {sessions.map((v) => (
+              <SessionRow
+                key={v.id}
+                v={v}
+                onClick={() => edit({ type: "session", id: v.id })}
               />
-            )}
-          </Section>
-          <Week s={s} edit={edit} go={go} />
-          <Metrics s={s} edit={edit} />
-          <StrengthProgress s={s} />
-          <ReminderTasks s={s} go={go} />
-        </div>
-        <div className="secondary-column">
-          <Section title="训练准备">
-            <div className="preparation">
-              {[
-                {
-                  icon: FileText,
-                  title: "完整评估",
-                  desc: `已填写 ${ready.fields}/${ready.total} 项基本信息`,
-                  status: ready.confirmed ? "已确认" : "待完成",
-                  target: "训练前评估",
-                },
-                {
-                  icon: AlertTriangle,
-                  title: "问题分级",
-                  desc: s.problems.length
-                    ? `${s.problems.length} 个问题，${ready.graded} 个已有分级依据`
-                    : "逐项明确程度、依据与改善目标",
-                  status:
-                    s.problems.length === 0
-                      ? "待评估"
-                      : ready.graded === s.problems.length
-                        ? "已分级"
-                        : "待补充",
-                  target: "训练前评估",
-                },
-                {
-                  icon: ClipboardCheck,
-                  title: "教练方案",
-                  desc: "教练填写动作方法与个人剂量",
-                  status: s.plans.some((p) => p.status === "已发布")
-                    ? "已发布"
-                    : "待制定",
-                  target: "教练方案",
-                },
-              ].map(({ icon: Icon, title, desc, status, target }) => (
-                <button
-                  className="ready-row"
-                  key={title}
-                  onClick={() => go(target)}
-                >
-                  <span className="ready-icon">
-                    <Icon size={22} />
-                  </span>
-                  <span className="ready-copy">
-                    <strong>{title}</strong>
-                    <small>{desc}</small>
-                  </span>
-                  <Badge tone={status.startsWith("已") ? "blue" : "amber"}>
-                    {status}
-                  </Badge>
-                </button>
-              ))}
-            </div>
-            <LinkButton onClick={() => go("训练前评估")}>
-              完善训练前评估
-            </LinkButton>
-          </Section>
-          <Section title="下次复查">
-            {(() => {
-              const next =
-                s.reviews[0]?.nextDate ||
-                s.plans.find((p) => p.status === "已发布")?.nextReview;
-              return next ? (
-                <div className="next-review">
-                  <strong>{next}</strong>
-                  <p>
-                    {next < today()
-                      ? "复查日期已到，请联系教练完成复查。"
-                      : "按相同方法复测问题、力量与身体指标。"}
-                  </p>
-                  <LinkButton onClick={() => go("复查与调整")}>
-                    查看复查计划
-                  </LinkButton>
+            ))}
+          </div>
+        ) : (
+          <div className="compact-empty">
+            <p>
+              {published
+                ? "今天没有训练安排"
+                : s.assessment.confirmed
+                  ? "评估已确认，等待制定方案"
+                  : "先完成评估，再开始训练"}
+            </p>
+            <Button
+              onClick={() =>
+                go(
+                  published
+                    ? "训练日历"
+                    : s.assessment.confirmed
+                      ? "教练方案"
+                      : "训练前评估",
+                )
+              }
+            >
+              {published
+                ? "查看日历"
+                : s.assessment.confirmed
+                  ? "制定方案"
+                  : "完成训练前评估"}
+            </Button>
+          </div>
+        )}
+      </Section>
+      <ReminderTasks s={s} go={go} />
+      {next && next > day && (
+        <Section
+          title="下次复查"
+          action={
+            <LinkButton onClick={() => go("复查与调整")}>查看</LinkButton>
+          }
+        >
+          <strong>{next}</strong>
+        </Section>
+      )}
+      {!!entries.length && (
+        <Section
+          title="身体趋势"
+          action={
+            <LinkButton onClick={() => go("每日记录")}>全部趋势</LinkButton>
+          }
+        >
+          <dl className="overview-metrics">
+            {(
+              [
+                ["weight", "体重", "kg"],
+                ["bodyFat", "体脂", "%"],
+                ["waist", "腰围", "cm"],
+              ] as const
+            ).map(([key, label, unit]) => {
+              const rows = entries.filter((x) => x[key] !== null),
+                first = rows[0],
+                last = rows.at(-1);
+              return last ? (
+                <div key={key}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <strong>
+                      {last[key]} {unit}
+                    </strong>
+                    {first && rows.length > 1 && (
+                      <small>
+                        较首条 {(last[key]! - first[key]!).toFixed(1)} {unit}
+                      </small>
+                    )}
+                  </dd>
                 </div>
-              ) : (
-                <Empty
-                  title="尚未约定复查日期"
-                  description="发布方案时，由教练填写本周期的复查日期。"
-                />
-              );
-            })()}
-          </Section>
-          <Section title="最近调整">
-            {last ? (
-              <div className="adjustment-mini">
-                <Badge tone="blue">{last.effective} 生效</Badge>
-                <p>{last.reason}</p>
-                <small>
-                  取消 {last.cancelled} 次待完成训练，重新安排 {last.scheduled}{" "}
-                  次。
-                </small>
-                <LinkButton onClick={() => go("复查与调整")}>
-                  查看调整记录
-                </LinkButton>
-              </div>
-            ) : (
-              <Empty
-                title="暂无调整记录"
-                description="复查后在这里查看方案版本与排程变化。"
-                action={
-                  <LinkButton onClick={() => go("复查与调整")}>
-                    查看复查计划
-                  </LinkButton>
-                }
-              />
-            )}
-          </Section>
-        </div>
-      </div>
+              ) : null;
+            })}
+          </dl>
+        </Section>
+      )}
+      {owner && (
+        <Button
+          secondary
+          onClick={() =>
+            edit({ type: "daily", id: s.daily.find((x) => x.date === day)?.id })
+          }
+        >
+          记录今天的身体状态
+        </Button>
+      )}
     </>
   );
 }
@@ -262,57 +168,6 @@ function SessionRow({ v, onClick }: { v: Session; onClick: () => void }) {
     </button>
   );
 }
-function Week({ s, edit, go }: ScreenProps) {
-  const offset = (new Date(today() + "T00:00:00Z").getUTCDay() + 6) % 7;
-  const monday = shiftDate(today(), -offset);
-  return (
-    <Section
-      title="本周训练"
-      action={<LinkButton onClick={() => go("训练日历")}>完整日历</LinkButton>}
-    >
-      <div className="week-grid">
-        {Array.from({ length: 7 }, (_, i) => {
-          const date = shiftDate(monday, i),
-            items = s.sessions.filter(
-              (x) => x.date === date && x.status !== "已取消",
-            );
-          return (
-            <button
-              key={date}
-              className={"week-day " + (date === today() ? "today" : "")}
-              onClick={() =>
-                items[0]
-                  ? edit({ type: "session", id: items[0].id })
-                  : go("训练日历")
-              }
-            >
-              <span>周{weekdays[(i + 1) % 7]}</span>
-              <small>{date.slice(5).replace("-", "/")}</small>
-              {items.length ? (
-                <>
-                  <strong>
-                    {items.filter((x) => x.status === "已完成").length}/
-                    {items.length}
-                  </strong>
-                  <small>
-                    {items.every((x) => x.status === "已完成")
-                      ? "已完成"
-                      : "有训练"}
-                  </small>
-                </>
-              ) : (
-                <>
-                  <CalendarDays size={24} />
-                  <small>未排课</small>
-                </>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </Section>
-  );
-}
 const metrics = [
   ["weight", "体重", "kg"],
   ["bodyFat", "体脂率", "%"],
@@ -321,7 +176,15 @@ const metrics = [
   ["heartRate", "静息心率", "次/分"],
   ["steps", "步数", "步"],
 ] as const;
-export function Metrics({ s, edit }: { s: System; edit: ScreenProps["edit"] }) {
+export function Metrics({
+  s,
+  edit,
+  showAdd = true,
+}: {
+  s: System;
+  edit: ScreenProps["edit"];
+  showAdd?: boolean;
+}) {
   const [key, setKey] = useState<(typeof metrics)[number][0]>("weight"),
     [period, setPeriod] = useState("30");
   const metric = metrics.find((x) => x[0] === key)!;
@@ -357,23 +220,25 @@ export function Metrics({ s, edit }: { s: System; edit: ScreenProps["edit"] }) {
     <Section
       title="关键指标"
       action={
-        <LinkButton onClick={() => edit({ type: "daily" })}>
-          添加记录
-        </LinkButton>
+        showAdd ? (
+          <LinkButton onClick={() => edit({ type: "daily" })}>
+            添加记录
+          </LinkButton>
+        ) : undefined
       }
     >
       <div className="chart-controls">
-        <div className="segmented">
-          {metrics.map(([k, label]) => (
-            <button
-              key={k}
-              className={k === key ? "selected" : ""}
-              onClick={() => setKey(k)}
-            >
-              {label}
-            </button>
+        <select
+          aria-label="身体指标"
+          value={key}
+          onChange={(e) => setKey(e.target.value as typeof key)}
+        >
+          {metrics.map(([k, label, unit]) => (
+            <option key={k} value={k}>
+              {label}（{unit}）
+            </option>
           ))}
-        </div>
+        </select>
         <select
           aria-label="曲线时间范围"
           value={period}
@@ -449,13 +314,12 @@ export function Metrics({ s, edit }: { s: System; edit: ScreenProps["edit"] }) {
     </Section>
   );
 }
-export function AssessmentScreen({ s, edit }: ScreenProps) {
+export function AssessmentScreen({ s, edit, owner = true }: ScreenProps) {
   const r = readiness(s);
   return (
     <>
       <Section
         title="训练前完整评估"
-        description="先了解这个人，再确定要解决的问题和训练边界。"
         action={
           <Button onClick={() => edit({ type: "assessment" })}>
             <Pencil size={16} />
@@ -495,7 +359,6 @@ export function AssessmentScreen({ s, edit }: ScreenProps) {
       </Section>
       <Section
         title="问题分级与改善目标"
-        description="可添加多个问题。程度必须配合评估依据，复查时使用相同方法比较。"
         action={
           <Button onClick={() => edit({ type: "problem" })}>
             <Plus size={17} />
@@ -523,13 +386,14 @@ export function AssessmentScreen({ s, edit }: ScreenProps) {
                   >
                     {p.severity}
                   </Badge>
-                  <button
-                    className="icon"
-                    aria-label={`编辑${p.name}`}
-                    onClick={() => edit({ type: "problem", id: p.id })}
-                  >
-                    <Pencil size={17} />
-                  </button>
+                  <RecordMenu
+                    id={p.id}
+                    kind="problem"
+                    name={p.name}
+                    edit={edit}
+                    owner={owner}
+                    correction={{ type: "problem", id: p.id }}
+                  />
                 </div>
                 <dl>
                   <div>
@@ -562,16 +426,11 @@ export function AssessmentScreen({ s, edit }: ScreenProps) {
           <Empty
             title="还没有建立问题清单"
             description="例如头颈姿态、动作控制、平衡或力量基础，由评估结果决定。"
-            action={
-              <Button secondary onClick={() => edit({ type: "problem" })}>
-                添加第一个问题
-              </Button>
-            }
           />
         )}
       </Section>
       <Section
-        title="这个人健身时，需要特别注意什么"
+        title="训练注意事项"
         action={
           <LinkButton onClick={() => edit({ type: "assessment" })}>
             补充注意事项
@@ -597,11 +456,10 @@ export function AssessmentScreen({ s, edit }: ScreenProps) {
     </>
   );
 }
-export function PlanScreen({ s, edit, go }: ScreenProps) {
+export function PlanScreen({ s, edit, go, owner = true }: ScreenProps) {
   return (
     <>
       <div className="page-command">
-        <p>教练根据评估结果填写，发布后自动生成日历课次。</p>
         <Button onClick={() => edit({ type: "plan" })}>
           <Plus size={17} />
           制定新方案
@@ -639,6 +497,14 @@ export function PlanScreen({ s, edit, go }: ScreenProps) {
                 >
                   {p.status === "已发布" ? "调整后续方案" : "编辑草稿"}
                 </Button>
+                <RecordMenu
+                  id={p.id}
+                  kind="plan"
+                  name={p.name}
+                  edit={edit}
+                  owner={owner}
+                  template
+                />
               </div>
             }
           >
@@ -728,11 +594,6 @@ export function PlanScreen({ s, edit, go }: ScreenProps) {
           <Empty
             title="尚未制定训练方案"
             description="不会自动套用通用处方。由教练根据你的评估，填写每个动作的方法与剂量。"
-            action={
-              <Button onClick={() => edit({ type: "plan" })}>
-                制定第一份方案
-              </Button>
-            }
           />
         </Section>
       )}
@@ -745,6 +606,7 @@ export function CalendarScreen({
   go,
   calendar,
   setCalendar,
+  owner = true,
 }: ScreenProps & {
   calendar: CalendarLocation;
   setCalendar: (value: CalendarLocation) => void;
@@ -883,14 +745,31 @@ export function CalendarScreen({
             {selectedItems.map((v) =>
               v.status === "已取消" ? (
                 <div className="cancelled-session" key={v.id}>
-                  {v.title} v{v.planVersion} · 已因调整取消
+                  {v.title} v{v.planVersion} · 已取消
+                  {owner && (
+                    <RecordMenu
+                      id={v.id}
+                      kind="session"
+                      name={v.title}
+                      edit={edit}
+                    />
+                  )}
                 </div>
               ) : (
-                <SessionRow
-                  key={v.id}
-                  v={v}
-                  onClick={() => edit({ type: "session", id: v.id })}
-                />
+                <div className="session-with-actions" key={v.id}>
+                  <SessionRow
+                    v={v}
+                    onClick={() => edit({ type: "session", id: v.id })}
+                  />
+                  {owner && (
+                    <RecordMenu
+                      id={v.id}
+                      kind="session"
+                      name={v.title}
+                      edit={edit}
+                    />
+                  )}
+                </div>
               ),
             )}
           </div>
@@ -904,16 +783,16 @@ export function CalendarScreen({
     </>
   );
 }
-export function DailyScreen({ s, edit }: ScreenProps) {
+export function DailyScreen({ s, edit, owner = true }: ScreenProps) {
   return (
     <>
       <div className="page-command">
-        <p>记录身体变化与恢复，给下次复查提供依据。</p>
         <Button
+          disabled={!owner}
           onClick={() =>
             edit({
               type: "daily",
-              id: s.daily.find((x) => x.date === today())?.id,
+              id: s.daily.find((x) => x.date === today(s.profile.timeZone))?.id,
             })
           }
         >
@@ -921,109 +800,78 @@ export function DailyScreen({ s, edit }: ScreenProps) {
           记录今天
         </Button>
       </div>
-      <Metrics s={s} edit={edit} />
-      <Section
-        title="每日记录"
-        description="同一天保留一条完整记录，可随时补充未测指标。"
-      >
+      {s.daily.some((r) =>
+        [r.weight, r.bodyFat, r.waist, r.sleep, r.heartRate, r.steps].some(
+          (v) => v !== null,
+        ),
+      ) && <Metrics s={s} edit={edit} showAdd={false} />}
+      {s.sessions.some(
+        (r) => r.status === "已完成" && r.setLogs?.some((x) => x.done),
+      ) && (
+        <details className="section disclosure">
+          <summary>力量进步</summary>
+          <StrengthProgress s={s} />
+        </details>
+      )}
+      <Section title="每日记录">
         {s.daily.length ? (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  {[
-                    "日期",
-                    "体重 kg",
-                    "体脂 %",
-                    "腰围 cm",
-                    "睡眠 h",
-                    "静息心率",
-                    "步数",
-                    "操作",
-                  ].map((k) => (
-                    <th key={k}>{k}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[...s.daily]
-                  .sort((a, b) => b.date.localeCompare(a.date))
-                  .map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.date}</td>
-                      {(
-                        [
-                          "weight",
-                          "bodyFat",
-                          "waist",
-                          "sleep",
-                          "heartRate",
-                          "steps",
-                        ] as const
-                      ).map((k) => (
-                        <td key={k}>{r[k] ?? "—"}</td>
-                      ))}
-                      <td>
-                        <button
-                          className="link"
-                          onClick={() => edit({ type: "daily", id: r.id })}
-                        >
-                          编辑记录
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+          <div className="daily-list">
+            {[...s.daily]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((r) => (
+                <article className="daily-card" key={r.id}>
+                  <header>
+                    <strong>{r.date}</strong>
+                    {owner && (
+                      <RecordMenu
+                        kind="daily"
+                        id={r.id}
+                        name={r.date + "每日记录"}
+                        edit={edit}
+                        correction={{ type: "daily", id: r.id }}
+                      />
+                    )}
+                  </header>
+                  <dl>
+                    {(
+                      [
+                        ["weight", "体重", "kg"],
+                        ["bodyFat", "体脂", "%"],
+                        ["waist", "腰围", "cm"],
+                        ["sleep", "睡眠", "h"],
+                        ["heartRate", "静息心率", "次/分"],
+                        ["steps", "步数", "步"],
+                        ["energy", "精力", "/10"],
+                      ] as const
+                    ).map(([key, label, unit]) =>
+                      r[key] !== null ? (
+                        <div key={key}>
+                          <dt>{label}</dt>
+                          <dd>
+                            {r[key]} {unit}
+                          </dd>
+                        </div>
+                      ) : null,
+                    )}
+                  </dl>
+                  {r.notes && <p>{r.notes}</p>}
+                </article>
+              ))}
           </div>
         ) : (
-          <Empty
-            title="从第一条真实记录开始"
-            description="体重、体脂率、腰围、睡眠、静息心率、步数都可以记录，未测项目留空。"
-          />
+          <p className="muted">还没有每日记录，未测指标可留空。</p>
         )}
-      </Section>
-      <Section
-        title="设备与数据来源"
-        description="目前支持手动记录；设备接入是后续扩展，尚未连接或自动读取数据。"
-      >
-        <div className="device-grid">
-          {[
-            {
-              icon: Smartphone,
-              name: "米家／智能体脂秤",
-              desc: "后续接入体重、体脂率等测量指标",
-            },
-            {
-              icon: Watch,
-              name: "Apple Watch／健康",
-              desc: "后续接入步数、心率、睡眠等记录",
-            },
-          ].map(({ icon: Icon, name, desc }) => (
-            <div className="device" key={name}>
-              <Icon size={26} />
-              <div>
-                <strong>{name}</strong>
-                <p>{desc}</p>
-              </div>
-              <Badge>未接入</Badge>
-            </div>
-          ))}
-        </div>
       </Section>
     </>
   );
 }
-export function ReviewScreen({ s, edit, go }: ScreenProps) {
+export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
   const plan = s.plans.find((x) => x.status === "已发布"),
     next = s.reviews[0]?.nextDate || plan?.nextReview;
   return (
     <>
       <div className="page-command">
-        <p>
-          {next ? `下次复查：${next}。` : "先在教练方案中约定复查日期。"}
-          复查问题程度、训练反应与指标趋势，再决定如何调整。
-        </p>
+        <p>{next ? `下次复查：${next}` : "尚未约定复查日期"}</p>
         <Button onClick={() => edit({ type: "review" })}>
           <Plus size={17} />
           新增复查
@@ -1053,6 +901,14 @@ export function ReviewScreen({ s, edit, go }: ScreenProps) {
                   >
                     {adjusted ? "已调整排程" : r.action}
                   </Badge>
+                  <RecordMenu
+                    kind="review"
+                    id={r.id}
+                    name={r.date + "复查"}
+                    edit={edit}
+                    owner={owner}
+                    correction={{ type: "review", id: r.id }}
+                  />
                 </header>
                 <p className="preserve">{r.conclusion}</p>
                 {r.changes.map((c) => (
@@ -1113,11 +969,6 @@ export function ReviewScreen({ s, edit, go }: ScreenProps) {
           <Empty
             title="还没有复查记录"
             description="复查需要记录同条件测量、程度变化、训练反应、下一步处理与下次日期。"
-            action={
-              <Button secondary onClick={() => edit({ type: "review" })}>
-                填写第一次复查
-              </Button>
-            }
           />
         )}
       </Section>

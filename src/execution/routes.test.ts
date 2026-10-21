@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { emptySystem } from "./domain";
 import {
   pages,
+  primaryPages,
+  navigationGroup,
   parseRoute,
   formatRoute,
   missingTarget,
@@ -10,6 +12,32 @@ import {
 } from "./routes";
 const day = "2026-10-20";
 describe("可分享的页面与弹窗地址", () => {
+  it("手机主导航保留六项，原有地址归入对应功能", () => {
+    expect(primaryPages).toEqual([
+      "overview",
+      "assessment",
+      "plans",
+      "calendar",
+      "daily",
+      "reviews",
+    ]);
+    expect(navigationGroup("measurements")).toBe("assessment");
+    expect(navigationGroup("templates")).toBe("plans");
+    for (const page of ["records", "notifications", "coach"] as const)
+      expect(navigationGroup(page)).toBe("settings");
+    expect(parseRoute("#measurements/measurement/m1", day).edit).toEqual({
+      type: "measurement",
+      id: "m1",
+    });
+    expect(parseRoute("#records/history/12", day).edit).toEqual({
+      type: "history",
+      id: "12",
+    });
+    expect(parseRoute("#templates/template/t1", day).edit).toEqual({
+      type: "template",
+      id: "t1",
+    });
+  });
   it("七个页面可从地址恢复，旧的空地址与品牌#仍进入总览", () => {
     for (const page of Object.keys(pages)) {
       expect(parseRoute("#" + page, day).page).toBe(page);

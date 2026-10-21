@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Home,
   ClipboardCheck,
@@ -6,10 +12,9 @@ import {
   CalendarDays,
   PenLine,
   RefreshCcw,
-  Database,
   Download,
   Upload,
-  UserRound,
+  Settings,
   ChevronRight,
   X,
   Check,
@@ -52,10 +57,13 @@ import {
   missingTarget,
   pageForView,
   pages,
+  navigationLabels,
+  navigationGroup,
+  type Page,
   type Edit,
 } from "./routes";
 import { EditorNavigationContext, useHashNavigation } from "./hash-navigation";
-import { UpdateBell } from "../cloud/reminders";
+import { UpdateBell, NotificationCenter } from "../cloud/reminders";
 import CloudAccount from "../cloud/account";
 import {
   send,
@@ -81,10 +89,6 @@ const navigationItems = [
   ["训练日历", CalendarDays],
   ["每日记录", PenLine],
   ["复查与调整", RefreshCcw],
-  ["量化评估", ClipboardCheck],
-  ["教练工作台", UserRound],
-  ["方案模板", FileText],
-  ["记录与恢复", Database],
 ] as const;
 type Editing = { key: string; edit: Edit; snapshot: System; version: number };
 export default function App({ cloud }: { cloud?: CloudConnection }) {
@@ -117,12 +121,15 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
   );
   const { route } = navigation;
   const view = pages[route.page];
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 680px)").matches)
-      document
-        .querySelector<HTMLElement>("nav [aria-current=page]")
-        ?.scrollIntoView({ block: "nearest", inline: "center" });
+  const group = navigationGroup(route.page);
+  const scrollPositions = useRef<Partial<Record<Page, number>>>({});
+  useLayoutEffect(() => {
+    window.scrollTo({
+      top: scrollPositions.current[route.page] ?? 0,
+      behavior: "instant",
+    });
   }, [route.page]);
+  const hasStudents = !!cloud?.spaces.some((x) => x.role === "coach");
   const file = useRef<HTMLInputElement>(null),
     channel = useRef<BroadcastChannel | null>(null);
   const load = useCallback(async () => {
@@ -227,11 +234,11 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
     });
   }, [route, loading, error, s, records, editing?.key]);
   function go(v: string) {
+    scrollPositions.current[route.page] = window.scrollY;
     navigation.navigate({
       page: pageForView(v),
       calendar: { month: today().slice(0, 7), date: today() },
     });
-    window.scrollTo({ top: 0, behavior: "instant" });
   }
   function edit(value: Edit) {
     if (blocked(value)) {
@@ -287,7 +294,17 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
       );
       cloud.onSaved(result);
       setS(result.payload);
-      setNotice("已保存到云端，其他设备和授权教练将同步看到更新");
+      setNotice(
+        editing.edit.type === "archive"
+          ? editing.edit.kind === "restore"
+            ? "已恢复"
+            : "已归档"
+          : editing.edit.type === "history"
+            ? "已恢复"
+            : editing.edit.type === "template"
+              ? "已创建方案草稿"
+              : "已保存",
+      );
       return;
     }
     const r = await saveRecord(
@@ -299,7 +316,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
     setRecords((old) => [r, ...old.filter((x) => x.id !== r.id)]);
     setS(parsed.data);
     channel.current?.postMessage("refresh");
-    setNotice("已保存，相关记录与日历已更新");
+    setNotice("已保存");
   }
   function exportData() {
     const data = records.some((x) => x.id === "execution-system")
@@ -360,11 +377,15 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
       if (file.current) file.current.value = "";
     }
   }
-  const props = { s, edit, go };
+  const props = { s, edit, go, owner: !cloud || cloud.space.role === "owner" };
   const title =
-    view === "我的总览"
-      ? `${s.profile.name ? s.profile.name + "的" : "我的"}健身计划`
-      : view;
+    route.page === "records"
+      ? "历史与回收站"
+      : route.page === "notifications"
+        ? "提醒与通知"
+        : route.page === "coach"
+          ? "教练工作台"
+          : navigationLabels[group];
   return (
     <EditorNavigationContext.Provider
       value={{
@@ -393,23 +414,29 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
             {navigationItems.map(([name, Icon]) => (
               <button
                 key={name}
-                className={view === name ? "active" : ""}
-                aria-current={view === name ? "page" : undefined}
+                className={group === pageForView(name) ? "active" : ""}
+                aria-current={group === pageForView(name) ? "page" : undefined}
                 onClick={() => go(name)}
               >
                 <Icon size={20} />
-                <span>{name}</span>
+                <span>
+                  {
+                    navigationLabels[
+                      pageForView(name) as keyof typeof navigationLabels
+                    ]
+                  }
+                </span>
               </button>
             ))}
           </nav>
           <div className="sidebar-foot">
             <button
-              aria-label="资料与备份"
-              className={view === "资料与备份" ? "active" : ""}
+              aria-label="设置"
+              className={group === "settings" ? "active" : ""}
               onClick={() => go("资料与备份")}
             >
-              <Database size={19} />
-              <span>资料与备份</span>
+              <Settings size={19} />
+              <span>设置</span>
             </button>
             <div className="person">
               <span className="avatar">
@@ -426,24 +453,35 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
           <header className="page-header">
             <div>
               <h1>{title}</h1>
-              <p>
-                {view === "我的总览" ? s.profile.goal : "个人健身计划执行系统"}
-                {view === "我的总览" && s.profile.gainKg !== null && (
-                  <span> · 增重目标 {s.profile.gainKg} kg</span>
+              {route.page === "overview" &&
+                s.profile.goal &&
+                s.profile.goal !== "尚未设置训练目标" && (
+                  <p>
+                    {s.profile.goal}
+                    {s.profile.gainKg !== null
+                      ? ` · 增重目标 ${s.profile.gainKg} kg`
+                      : ""}
+                  </p>
                 )}
-              </p>
+              {cloud?.space.role === "coach" && (
+                <p className="student-context">
+                  学员：{cloud.space.owner_name}
+                </p>
+              )}
             </div>
             {cloud && (
-              <UpdateBell cloud={cloud} open={() => go("资料与备份")} />
+              <UpdateBell cloud={cloud} open={() => go("提醒与通知")} />
             )}
-            <Button
-              secondary
-              disabled={loading || !!error || cloud?.space.role === "coach"}
-              onClick={() => edit({ type: "profile" })}
-            >
-              <UserRound size={18} />
-              编辑个人资料
-            </Button>
+            {group !== "settings" && (
+              <button
+                type="button"
+                className="header-icon"
+                aria-label="设置"
+                onClick={() => go("资料与备份")}
+              >
+                <Settings size={20} />
+              </button>
+            )}
           </header>
           {s.trainingHold?.active && (
             <div className="hold-banner" role="alert">
@@ -454,31 +492,61 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
               </Button>
             </div>
           )}
-          {cloud ? (
-            <div className="cloud-strip">
-              <span>
-                {cloud.space.role === "coach"
-                  ? "教练协作 · " + cloud.space.owner_name
-                  : "我的独立健身空间"}{" "}
-                · {cloud.status}
-              </span>
-              <button className="link" onClick={() => go("资料与备份")}>
-                账号与教练协作
-              </button>
-            </div>
-          ) : (
-            <div className="cloud-strip">
-              <span>
-                云端版已上线：注册后可跨设备同步，并邀请教练协作。原有记录请先在“资料与备份”导出，再到新站导入。
-              </span>
-              <a
-                href="https://fitness.bibidu.com/"
-                target="_blank"
-                rel="noreferrer"
+          {cloud?.status.startsWith("同步失败") && (
+            <p className="sync-error" role="alert">
+              {cloud.status}
+              <button
+                className="link"
+                onClick={() => void cloud.refresh().catch(() => {})}
               >
-                打开云端版 ↗
-              </a>
-            </div>
+                重试
+              </button>
+            </p>
+          )}
+          {!cloud && (
+            <a className="local-cloud-link" href="https://fitness.bibidu.com/">
+              打开云端版 ↗
+            </a>
+          )}
+          {group === "assessment" && (
+            <nav className="subnav" aria-label="评估内容">
+              {[
+                ["训练前评估", "评估与问题"],
+                ["量化评估", "测量与趋势"],
+              ].map(([target, label]) => (
+                <button
+                  key={target}
+                  aria-current={view === target ? "page" : undefined}
+                  onClick={() => go(target!)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
+          {group === "plans" && (
+            <nav className="subnav" aria-label="方案内容">
+              {[
+                ["教练方案", "当前方案"],
+                ["方案模板", "从模板创建"],
+              ].map(([target, label]) => (
+                <button
+                  key={target}
+                  aria-current={view === target ? "page" : undefined}
+                  onClick={() => go(target!)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
+          {["records", "coach", "notifications"].includes(route.page) && (
+            <button
+              className="back-to-settings"
+              onClick={() => go("资料与备份")}
+            >
+              ← 设置
+            </button>
           )}
           {loading ? (
             <div className="loading" role="status">
@@ -507,6 +575,14 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
             />
           ) : view === "每日记录" ? (
             <DailyScreen {...props} />
+          ) : view === "提醒与通知" ? (
+            cloud ? (
+              <NotificationCenter cloud={cloud} />
+            ) : (
+              <Section title="提醒">
+                <p>登录云端账号后设置提醒。</p>
+              </Section>
+            )
           ) : view === "记录与恢复" ? (
             <RecordsScreen {...props} cloud={cloud} />
           ) : view === "量化评估" ? (
@@ -523,6 +599,24 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
             <ReviewScreen {...props} />
           ) : (
             <>
+              <div className="settings-links">
+                {cloud && (
+                  <button onClick={() => go("提醒与通知")}>
+                    提醒与通知
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+                <button onClick={() => go("记录与恢复")}>
+                  历史与回收站
+                  <ChevronRight size={18} />
+                </button>
+                {hasStudents && (
+                  <button onClick={() => go("教练工作台")}>
+                    教练工作台
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+              </div>
               {cloud && (
                 <CloudAccount
                   cloud={{
@@ -537,153 +631,158 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                   }}
                 />
               )}
-              <Section
-                title="个人资料"
-                action={
-                  <Button
-                    secondary
-                    disabled={cloud?.space.role === "coach"}
-                    onClick={() => edit({ type: "profile" })}
-                  >
-                    编辑资料
-                  </Button>
-                }
-              >
-                <dl>
-                  <div>
-                    <dt>称呼</dt>
-                    <dd>{s.profile.name || "尚未填写"}</dd>
-                  </div>
-                  <div>
-                    <dt>出生年份</dt>
-                    <dd>{s.profile.birthYear ?? "尚未填写"}</dd>
-                  </div>
-                  <div>
-                    <dt>训练目标</dt>
-                    <dd>{s.profile.goal}</dd>
-                  </div>
-                  <div>
-                    <dt>负责教练</dt>
-                    <dd>{s.profile.coach || "尚未填写"}</dd>
-                  </div>
-                </dl>
-              </Section>
-              <Section
-                title="记录备份与转移"
-                description={
-                  cloud
-                    ? "健康资料保存在独立云端空间，不会发布到 GitHub。备份可用于额外保留或迁入旧站资料。"
-                    : "健康资料只保存在当前浏览器，不会随网站发布到 GitHub。更换设备或清理浏览器前，请先导出备份。"
-                }
-              >
-                <div className="backup-actions">
-                  <Button onClick={exportData}>
-                    <Download size={18} />
-                    导出完整备份
-                  </Button>
-                  <Button
-                    secondary
-                    disabled={cloud?.space.role === "coach"}
-                    onClick={() => file.current?.click()}
-                  >
-                    <Upload size={18} />
-                    导入备份
-                  </Button>
-                </div>
-                <p className="muted">
-                  当前共 {s.daily.length} 条每日记录、{s.sessions.length}{" "}
-                  个课次、
-                  {s.reviews.length} 次复查。
-                  {cloud
-                    ? "云端版会同步其他设备的新修改；同时编辑会检查版本，避免覆盖。"
-                    : "不同设备目前不自动同步；同编号导入保留此浏览器已有版本。"}
-                </p>
-                <p className="muted">
-                  {cloud
-                    ? "导入备份会替换当前空间的计划与记录；导入前会让你核对并确认。原版资料会一起保留。"
-                    : "“教练填写”表示填写流程，目前没有独立教练账号与远程协作。教练目前需在同一设备一起填写。备份可迁移到新浏览器，不支持双向合并。"}
-                </p>
-                <input
-                  ref={file}
-                  type="file"
-                  hidden
-                  accept="application/json,.json"
-                  aria-label="选择备份文件"
-                  onChange={(e) => void importFile(e.target.files?.[0])}
-                />
-              </Section>
-              {records.some((x) => x.kind !== "system") && (
+              <details className="settings-disclosure">
+                <summary>个人资料</summary>
                 <Section
-                  title="保留的原版资料"
-                  description="原有个人资料、评估和身体记录已带入新系统；原版训练、复查与调整笔记仍保留在下方。原表描述不代表已经核实。"
+                  title="个人资料"
+                  action={
+                    <Button
+                      secondary
+                      disabled={cloud?.space.role === "coach"}
+                      onClick={() => edit({ type: "profile" })}
+                    >
+                      编辑资料
+                    </Button>
+                  }
                 >
-                  {records
-                    .filter((x) => x.kind !== "system")
-                    .map((r) => (
-                      <details className="legacy" key={r.id}>
-                        <summary>
-                          {r.kind} ·{" "}
-                          {r.payload.topic ||
-                            r.payload.date ||
-                            r.payload.exercise ||
-                            r.id}
-                          {r.deleted ? "（原版归档）" : ""}
-                          <ChevronRight size={16} />
-                        </summary>
-                        <dl>
-                          {Object.entries(r.payload).map(([k, v]) => (
-                            <div key={k}>
-                              <dt>
-                                {(
-                                  {
-                                    birthYear: "出生年份",
-                                    goal: "目标",
-                                    height: "身高",
-                                    baselineWeight: "起始体重",
-                                    gainKg: "增重目标",
-                                    startDate: "开始日期",
-                                    coach: "教练",
-                                    topic: "项目",
-                                    detail: "内容",
-                                    status: "状态",
-                                    owner: "评估人",
-                                    date: "日期",
-                                    exercise: "动作",
-                                    session: "训练分组",
-                                    sets: "组数",
-                                    quantity: "次数／时长",
-                                    load: "负荷",
-                                    effort: "费力程度",
-                                    during: "训练中反应",
-                                    nextDay: "次日恢复",
-                                    notes: "备注",
-                                    summary: "结论",
-                                    reason: "原因",
-                                    before: "调整前",
-                                    after: "调整后",
-                                    nextDate: "下次日期",
-                                    weight: "体重",
-                                    waist: "腰围",
-                                    sleep: "睡眠",
-                                    food: "饮食",
-                                    appetite: "食欲",
-                                  } as Record<string, string>
-                                )[k] || k}
-                              </dt>
-                              <dd>{String(v ?? "未填写")}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      </details>
-                    ))}
+                  <dl>
+                    <div>
+                      <dt>称呼</dt>
+                      <dd>{s.profile.name || "尚未填写"}</dd>
+                    </div>
+                    <div>
+                      <dt>出生年份</dt>
+                      <dd>{s.profile.birthYear ?? "尚未填写"}</dd>
+                    </div>
+                    <div>
+                      <dt>训练目标</dt>
+                      <dd>{s.profile.goal}</dd>
+                    </div>
+                    <div>
+                      <dt>负责教练</dt>
+                      <dd>{s.profile.coach || "尚未填写"}</dd>
+                    </div>
+                  </dl>
                 </Section>
+              </details>
+              <details className="settings-disclosure">
+                <summary>备份与转移</summary>
+                <Section
+                  title="记录备份与转移"
+                  description={
+                    cloud
+                      ? "健康资料保存在独立云端空间，不会发布到 GitHub。备份可用于额外保留或迁入旧站资料。"
+                      : "健康资料只保存在当前浏览器，不会随网站发布到 GitHub。更换设备或清理浏览器前，请先导出备份。"
+                  }
+                >
+                  <div className="backup-actions">
+                    <Button onClick={exportData}>
+                      <Download size={18} />
+                      导出完整备份
+                    </Button>
+                    <Button
+                      secondary
+                      disabled={cloud?.space.role === "coach"}
+                      onClick={() => file.current?.click()}
+                    >
+                      <Upload size={18} />
+                      导入备份
+                    </Button>
+                  </div>
+                  <p className="muted">
+                    当前共 {s.daily.length} 条每日记录、{s.sessions.length}{" "}
+                    个课次、
+                    {s.reviews.length} 次复查。
+                    {cloud
+                      ? "云端版会同步其他设备的新修改；同时编辑会检查版本，避免覆盖。"
+                      : "不同设备目前不自动同步；同编号导入保留此浏览器已有版本。"}
+                  </p>
+                  <p className="muted">
+                    {cloud
+                      ? "导入备份会替换当前空间的计划与记录；导入前会让你核对并确认。原版资料会一起保留。"
+                      : "“教练填写”表示填写流程，目前没有独立教练账号与远程协作。教练目前需在同一设备一起填写。备份可迁移到新浏览器，不支持双向合并。"}
+                  </p>
+                  <input
+                    ref={file}
+                    type="file"
+                    hidden
+                    accept="application/json,.json"
+                    aria-label="选择备份文件"
+                    onChange={(e) => void importFile(e.target.files?.[0])}
+                  />
+                </Section>
+              </details>
+              {records.some((x) => x.kind !== "system") && (
+                <details className="settings-disclosure">
+                  <summary>原版资料</summary>
+                  <Section
+                    title="保留的原版资料"
+                    description="原有个人资料、评估和身体记录已带入新系统；原版训练、复查与调整笔记仍保留在下方。原表描述不代表已经核实。"
+                  >
+                    {records
+                      .filter((x) => x.kind !== "system")
+                      .map((r) => (
+                        <details className="legacy" key={r.id}>
+                          <summary>
+                            {r.kind} ·{" "}
+                            {r.payload.topic ||
+                              r.payload.date ||
+                              r.payload.exercise ||
+                              r.id}
+                            {r.deleted ? "（原版归档）" : ""}
+                            <ChevronRight size={16} />
+                          </summary>
+                          <dl>
+                            {Object.entries(r.payload).map(([k, v]) => (
+                              <div key={k}>
+                                <dt>
+                                  {(
+                                    {
+                                      birthYear: "出生年份",
+                                      goal: "目标",
+                                      height: "身高",
+                                      baselineWeight: "起始体重",
+                                      gainKg: "增重目标",
+                                      startDate: "开始日期",
+                                      coach: "教练",
+                                      topic: "项目",
+                                      detail: "内容",
+                                      status: "状态",
+                                      owner: "评估人",
+                                      date: "日期",
+                                      exercise: "动作",
+                                      session: "训练分组",
+                                      sets: "组数",
+                                      quantity: "次数／时长",
+                                      load: "负荷",
+                                      effort: "费力程度",
+                                      during: "训练中反应",
+                                      nextDay: "次日恢复",
+                                      notes: "备注",
+                                      summary: "结论",
+                                      reason: "原因",
+                                      before: "调整前",
+                                      after: "调整后",
+                                      nextDate: "下次日期",
+                                      weight: "体重",
+                                      waist: "腰围",
+                                      sleep: "睡眠",
+                                      food: "饮食",
+                                      appetite: "食欲",
+                                    } as Record<string, string>
+                                  )[k] || k}
+                                </dt>
+                                <dd>{String(v ?? "未填写")}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </details>
+                      ))}
+                  </Section>
+                </details>
               )}
             </>
           )}
-          <div className="page-bottom">
-            循序 · 个人健身计划执行系统
-            <span>资料 → 评估 → 方案 → 执行 → 复查</span>
-          </div>
         </main>
         {notice && (
           <div className="toast" role="status">

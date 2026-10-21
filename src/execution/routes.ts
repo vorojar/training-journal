@@ -12,8 +12,34 @@ export const pages = {
   coach: "教练工作台",
   templates: "方案模板",
   settings: "资料与备份",
+  notifications: "提醒与通知",
 } as const;
 export type Page = keyof typeof pages;
+export const primaryPages = [
+  "overview",
+  "assessment",
+  "plans",
+  "calendar",
+  "daily",
+  "reviews",
+] as const;
+export const navigationLabels = {
+  overview: "总览",
+  assessment: "评估",
+  plans: "方案",
+  calendar: "日历",
+  daily: "记录",
+  reviews: "复查",
+  settings: "设置",
+} as const;
+export function navigationGroup(
+  page: Page,
+): (typeof primaryPages)[number] | "settings" {
+  if (page === "measurements") return "assessment";
+  if (page === "templates") return "plans";
+  if (["records", "coach", "notifications"].includes(page)) return "settings";
+  return page as (typeof primaryPages)[number] | "settings";
+}
 export type Edit =
   | { type: "profile" }
   | { type: "assessment" }
