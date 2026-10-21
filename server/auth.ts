@@ -13,7 +13,7 @@ export function authentication(env: Env) {
     trustedOrigins: [env.APP_URL],
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 12,
+      minPasswordLength: 6,
       maxPasswordLength: 128,
     },
     session: {

@@ -35,10 +35,24 @@ async function call(
   passed++;
   return data;
 }
+await call(
+  null,
+  "/api/auth/sign-up/email",
+  {
+    email: `fitness-qa-${nonce}-short@example.invalid`,
+    password: randomBytes(3).toString("hex").slice(0, 5),
+    name: "验收密码长度",
+  },
+  "POST",
+  400,
+);
 for (const role of ["owner", "coach", "other"]) {
   const actor = {
     email: `fitness-qa-${nonce}-${role}@example.invalid`,
-    password: randomBytes(24).toString("base64url"),
+    password:
+      role === "owner"
+        ? randomBytes(3).toString("hex")
+        : randomBytes(24).toString("base64url"),
     name: `验收空间-${role}`,
     cookie: "",
   };
@@ -344,6 +358,9 @@ console.log(
     scope: new URL(base).hostname,
     covered: [
       "public-signup",
+      "six-character-password-register-and-login",
+      "five-character-password-rejected",
+      "long-password-compatible",
       "isolated-spaces",
       "bound-invites",
       "approval-before-access",

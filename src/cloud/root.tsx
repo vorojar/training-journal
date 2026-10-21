@@ -266,7 +266,7 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
             onChange={setEmail}
           />
           <Input
-            label="密码（至少12位）"
+            label="密码（至少6位）"
             type="password"
             required
             value={password}
