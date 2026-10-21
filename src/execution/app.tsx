@@ -62,6 +62,17 @@ import {
   type CloudConnection,
   type CloudDocument,
 } from "../cloud/client";
+import { type HistorySelection } from "./lifecycle";
+import {
+  RecordsScreen,
+  ArchiveEditor,
+  HistoryEditor,
+  MeasurementEditor,
+  MeasurementsScreen,
+  TemplateScreen,
+  TemplateEditor,
+  CoachScreen,
+} from "./extensions";
 import { DraftProvider } from "./drafts";
 const navigationItems = [
   ["我的总览", Home],
@@ -70,6 +81,10 @@ const navigationItems = [
   ["训练日历", CalendarDays],
   ["每日记录", PenLine],
   ["复查与调整", RefreshCcw],
+  ["量化评估", ClipboardCheck],
+  ["教练工作台", UserRound],
+  ["方案模板", FileText],
+  ["记录与恢复", Database],
 ] as const;
 type Editing = { key: string; edit: Edit; snapshot: System; version: number };
 export default function App({ cloud }: { cloud?: CloudConnection }) {
@@ -102,6 +117,12 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
   );
   const { route } = navigation;
   const view = pages[route.page];
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 680px)").matches)
+      document
+        .querySelector<HTMLElement>("nav [aria-current=page]")
+        ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [route.page]);
   const file = useRef<HTMLInputElement>(null),
     channel = useRef<BroadcastChannel | null>(null);
   const load = useCallback(async () => {
@@ -146,7 +167,8 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
   }, [cloud?.document]);
   function blocked(e: Edit) {
     return (
-      cloud?.space.role === "coach" && ["profile", "daily"].includes(e.type)
+      cloud?.space.role === "coach" &&
+      ["profile", "daily", "archive"].includes(e.type)
     );
   }
   function guarded(action: () => void) {
@@ -221,9 +243,9 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
       { parent: formatRoute({ ...route, edit: undefined }) },
     );
   }
-  async function save(next: System) {
+  async function save(next: System, restore?: HistorySelection) {
     if (!editing) throw new Error("填写窗口已关闭，请重试");
-    next = reconcileSystem(editing.snapshot, next);
+    if (!restore) next = reconcileSystem(editing.snapshot, next);
     const parsed = systemSchema.safeParse(next);
     if (!parsed.success)
       throw new Error(
@@ -233,6 +255,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
     if (cloud) {
       const key = JSON.stringify({
         version: editing.version,
+        restore,
         payload: parsed.data,
       });
       if (pendingMutation.current?.key !== key)
@@ -241,6 +264,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
         "/api/spaces/" + cloud.space.id + "/document",
         {
           payload: parsed.data,
+          restore,
           version: editing.version,
           mutationId: pendingMutation.current.id,
           action: (
@@ -252,6 +276,10 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
               session: "记录训练完成情况",
               daily: "更新每日记录",
               review: "记录定期复查",
+              measurement: "更新量化评估",
+              history: "恢复历史记录",
+              archive: "归档或恢复记录",
+              template: "套用方案模板",
             } as const
           )[editing.edit.type],
         },
@@ -479,6 +507,18 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
             />
           ) : view === "每日记录" ? (
             <DailyScreen {...props} />
+          ) : view === "记录与恢复" ? (
+            <RecordsScreen {...props} cloud={cloud} />
+          ) : view === "量化评估" ? (
+            <MeasurementsScreen {...props} />
+          ) : view === "教练工作台" ? (
+            <CoachScreen cloud={cloud} />
+          ) : view === "方案模板" ? (
+            <TemplateScreen
+              key={String(!!route.edit)}
+              {...props}
+              cloud={cloud}
+            />
           ) : view === "复查与调整" ? (
             <ReviewScreen {...props} />
           ) : (
@@ -704,7 +744,23 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                     entry={b.daily.find((x) => x.id === e.id)}
                   />
                 );
-              if (e.type === "review") return <ReviewEditor {...shared} />;
+              if (e.type === "review")
+                return (
+                  <ReviewEditor
+                    {...shared}
+                    review={b.reviews.find((x) => x.id === e.id)}
+                  />
+                );
+              if (e.type === "archive")
+                return <ArchiveEditor {...shared} kind={e.kind} id={e.id} />;
+              if (e.type === "history")
+                return (
+                  <HistoryEditor {...shared} cloud={cloud} version={e.id} />
+                );
+              if (e.type === "measurement")
+                return <MeasurementEditor {...shared} id={e.id} />;
+              if (e.type === "template")
+                return <TemplateEditor {...shared} cloud={cloud} id={e.id} />;
               const session = b.sessions.find((x) => x.id === e.id);
               return session ? (
                 <SessionEditor

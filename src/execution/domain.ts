@@ -73,7 +73,7 @@ const exerciseSchema = z.object({
     "请填写 http 或 https 链接",
   ),
 });
-const planSchema = z.object({
+export const planSchema = z.object({
   id: short,
   name: short.min(1),
   coach: short,
@@ -163,6 +163,52 @@ const adjustmentSchema = z.object({
   scheduled: z.number().int(),
   summary: text,
 });
+export const measurementSchema = z.object({
+  id: short.min(1),
+  problemId: short,
+  date,
+  metric: short.min(1),
+  value: z.number().finite().min(-100000).max(100000),
+  unit: short.min(1),
+  side: z.enum(["整体", "左侧", "右侧"]),
+  method: text.min(1),
+  assessor: short.min(1),
+  target: num(-100000, 100000),
+  notes: text,
+  photo: z
+    .string()
+    .max(420000)
+    .refine(
+      (v) =>
+        !v || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v),
+    )
+    .optional(),
+});
+export type Measurement = z.infer<typeof measurementSchema>;
+export const templateSchema = z.object({
+  id: short.min(1),
+  name: short.min(1),
+  goal: text,
+  progression: text,
+  cautions: text,
+  weekdays: z.array(z.number().int().min(0).max(6)),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  minutes: z.number().int().min(5).max(300),
+  weeks: z.number().int().min(1).max(52),
+  exercises: z.array(exerciseSchema).max(100),
+});
+export type PlanTemplate = z.infer<typeof templateSchema>;
+const trashSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("daily"), item: dailySchema }),
+    z.object({ kind: z.literal("session"), item: sessionSchema }),
+    z.object({ kind: z.literal("problem"), item: problemSchema }),
+    z.object({ kind: z.literal("plan"), item: planSchema }),
+    z.object({ kind: z.literal("review"), item: reviewSchema }),
+    z.object({ kind: z.literal("measurement"), item: measurementSchema }),
+  ])
+  .and(z.object({ id: short.min(1), at: short, reason: text.min(1) }));
+export type Trash = z.infer<typeof trashSchema>;
 export const systemSchema = z
   .object({
     schemaVersion: z.literal(2),
@@ -195,6 +241,9 @@ export const systemSchema = z
       cautions: text,
       stopRules: text,
     }),
+    measurements: z.array(measurementSchema).max(3000).optional(),
+    trash: z.array(trashSchema).max(5000).optional(),
+    templates: z.array(templateSchema).max(200).optional(),
     trainingHold: z
       .object({ active: z.boolean(), reason: text, since: date })
       .optional(),
@@ -591,6 +640,52 @@ export function reconcileSystem(
   allowHistoricalImport = false,
 ): System {
   const next = structuredClone(input);
+  for (const rows of [
+    next.problems,
+    next.plans,
+    next.sessions,
+    next.daily,
+    next.reviews,
+    next.adjustments,
+    next.measurements ?? [],
+    next.trash ?? [],
+    next.templates ?? [],
+  ]) {
+    if (new Set(rows.map((x) => x.id)).size !== rows.length)
+      throw new Error("记录编号重复，请核对后重新保存");
+  }
+  for (const m of next.measurements ?? []) {
+    const prior = before.measurements?.find((x) => x.id === m.id);
+    if (JSON.stringify(prior) !== JSON.stringify(m)) {
+      if (m.date > day) throw new Error("不能记录未来的测量");
+      if (m.problemId && !next.problems.some((p) => p.id === m.problemId))
+        throw new Error("测量关联的问题不存在");
+    }
+  }
+  const archiveKeys = {
+    daily: "daily",
+    session: "sessions",
+    problem: "problems",
+    plan: "plans",
+    review: "reviews",
+    measurement: "measurements",
+  } as const;
+  for (const archived of allowHistoricalImport ? [] : (next.trash ?? [])) {
+    const prior = before.trash?.find((x) => x.id === archived.id);
+    if (prior) {
+      if (JSON.stringify(prior) !== JSON.stringify(archived))
+        throw new Error("归档原件不可修改，请恢复后纠正记录");
+      continue;
+    }
+    const key = archiveKeys[archived.kind];
+    const original = (before[key] ?? []).find((x) => x.id === archived.item.id);
+    if (
+      !original ||
+      JSON.stringify(original) !== JSON.stringify(archived.item) ||
+      (next[key] ?? []).some((x) => x.id === archived.item.id)
+    )
+      throw new Error("归档必须保留当前记录的完整原件");
+  }
   const newReview = next.reviews.find(
     (r) =>
       r.action === "进一步评估" &&
@@ -636,7 +731,15 @@ export function reconcileSystem(
   }
   if (next.trainingHold?.active) {
     for (const row of next.sessions) {
-      const old = before.sessions.find((x) => x.id === row.id);
+      const archived = before.trash?.find(
+        (x) =>
+          x.kind === "session" &&
+          x.item.id === row.id &&
+          JSON.stringify(x.item) === JSON.stringify(row),
+      );
+      const old =
+        before.sessions.find((x) => x.id === row.id) ??
+        (archived?.kind === "session" ? archived.item : undefined);
       if (
         row.status === "已完成" &&
         old?.status !== "已完成" &&
@@ -655,7 +758,15 @@ export function reconcileSystem(
     );
   }
   for (const row of next.sessions) {
-    const old = before.sessions.find((x) => x.id === row.id);
+    const archived = before.trash?.find(
+      (x) =>
+        x.kind === "session" &&
+        x.item.id === row.id &&
+        JSON.stringify(x.item) === JSON.stringify(row),
+    );
+    const old =
+      before.sessions.find((x) => x.id === row.id) ??
+      (archived?.kind === "session" ? archived.item : undefined);
     if (
       row.status === "已完成" &&
       old?.status !== "已完成" &&

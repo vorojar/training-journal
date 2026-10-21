@@ -24,7 +24,7 @@ export async function request<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-Fitness-Client": "3",
+      "X-Fitness-Client": "4",
       ...options.headers,
     },
   });

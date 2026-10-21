@@ -30,6 +30,13 @@ describe("可分享的页面与弹窗地址", () => {
       { type: "daily" },
       { type: "daily", id: "entry-a" },
       { type: "review" },
+      { type: "review", id: "r1" },
+      { type: "measurement" },
+      { type: "measurement", id: "m1" },
+      { type: "history", id: "12" },
+      { type: "archive", kind: "daily", id: "d1" },
+      { type: "archive", kind: "restore", id: "trash1" },
+      { type: "template", id: "save_p1" },
     ];
     for (const edit of edits) {
       const route = {

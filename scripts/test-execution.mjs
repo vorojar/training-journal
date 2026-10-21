@@ -26,7 +26,7 @@ async function call(
     method,
     headers: {
       "Content-Type": "application/json",
-      "X-Fitness-Client": "3",
+      "X-Fitness-Client": "4",
       Origin: base,
       Cookie: who?.cookie ?? "",
     },

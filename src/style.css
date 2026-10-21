@@ -2341,3 +2341,71 @@ dialog::backdrop {
   border-radius: 12px;
   margin-top: 18px;
 }
+/* Execution records, measurement evidence and reusable plans. */
+.sidebar nav {
+  min-height: 0;
+  overflow-y: auto;
+}
+.record-list {
+  max-height: 640px;
+  overflow: auto;
+}
+.diff-cell {
+  min-width: 180px;
+  max-width: 320px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.measure-chart {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  height: auto;
+  margin: 20px 0;
+  color: #64748b;
+}
+.assessment-photo {
+  display: block;
+  max-width: 100%;
+  width: 280px;
+  max-height: 340px;
+  object-fit: contain;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.photo-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.photo-comparison figure {
+  margin: 0;
+}
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-top: 20px;
+}
+@media (max-width: 680px) {
+  .sidebar nav {
+    overflow-y: hidden;
+  }
+  .record-list {
+    max-height: none;
+  }
+  .access-row .backup-actions {
+    flex-wrap: wrap;
+  }
+  .measure-chart {
+    min-width: 0;
+  }
+  .diff-cell {
+    min-width: 140px;
+  }
+}
+.section-heading > .link {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

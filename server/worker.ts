@@ -14,8 +14,10 @@ import {
   assessmentErrors,
   reconcileSystem,
   systemSchema,
+  templateSchema,
   type System,
 } from "../src/execution/domain";
+import { recoverHistory } from "../src/execution/lifecycle";
 const apiError = (message: string, status = 400) =>
   Response.json({ error: message }, { status });
 const now = () => new Date().toISOString();
@@ -48,7 +50,8 @@ async function body(request: Request) {
 export function coachAllowed(old: System, next: System) {
   if (
     JSON.stringify(old.profile) !== JSON.stringify(next.profile) ||
-    JSON.stringify(old.daily) !== JSON.stringify(next.daily)
+    JSON.stringify(old.daily) !== JSON.stringify(next.daily) ||
+    JSON.stringify(old.trash ?? []) !== JSON.stringify(next.trash ?? [])
   )
     return false;
   // Coaches prescribe and reschedule; actual training completion remains the trainee's record.
@@ -153,6 +156,95 @@ export async function api(request: Request, env: Env): Promise<Response> {
       .all();
     return Response.json({ spaces: result.results });
   }
+  if (path === "/api/coach-dashboard" && request.method === "GET") {
+    const result = await db
+      .prepare(
+        "SELECT s.id,s.name,u.name AS owner_name,d.payload,d.version,d.updated_at FROM spaces s JOIN user u ON u.id=s.owner_id JOIN documents d ON d.space_id=s.id JOIN members m ON m.space_id=s.id WHERE m.user_id=? AND m.status='active'",
+      )
+      .bind(user.id)
+      .all<{
+        id: string;
+        name: string;
+        owner_name: string;
+        payload: string;
+        version: number;
+        updated_at: string;
+      }>();
+    return Response.json({
+      students: result.results.map((row) => {
+        const s = systemSchema.parse(JSON.parse(row.payload));
+        const day = today(s.profile.timeZone ?? "Asia/Shanghai");
+        const pending = s.sessions.filter((x) => x.status === "待完成");
+        const last = [...s.reviews].sort((a, b) =>
+          b.date.localeCompare(a.date),
+        )[0];
+        const reviewDates = last
+          ? [last.nextDate]
+          : s.plans
+              .filter((p) => p.status === "已发布")
+              .map((p) => p.nextReview);
+        return {
+          id: row.id,
+          name: row.owner_name,
+          version: row.version,
+          updated_at: row.updated_at,
+          assessmentNeeded: !s.assessment.confirmed,
+          hold: !!s.trainingHold?.active,
+          reviewDue: reviewDates.some((d) => d && d <= day),
+          adjustmentsNeeded: s.reviews
+            .filter((r) => r.action === "调整后续计划")
+            .reduce(
+              (n, r) =>
+                n +
+                (
+                  r.planIds ??
+                  s.plans.filter((p) => p.status === "已发布").map((p) => p.id)
+                ).filter(
+                  (id) =>
+                    !s.adjustments.some(
+                      (a) => a.reviewId === r.id && a.planId === id,
+                    ),
+                ).length,
+              0,
+            ),
+          todaySessions: pending.filter((x) => x.date === day).length,
+          overdue: pending.filter((x) => x.date < day).length,
+          completed: s.sessions.filter((x) => x.status === "已完成").length,
+        };
+      }),
+    });
+  }
+  if (path === "/api/templates" && request.method === "GET") {
+    const rows = await db
+      .prepare(
+        "SELECT id,payload,updated_at FROM plan_templates WHERE user_id=? ORDER BY updated_at DESC",
+      )
+      .bind(user.id)
+      .all<{ id: string; payload: string; updated_at: string }>();
+    return Response.json({
+      templates: rows.results.map((r) => JSON.parse(r.payload)),
+    });
+  }
+  if (path === "/api/templates" && request.method === "PUT") {
+    const t = templateSchema.parse(await body(request));
+    // A template carries prescriptions, never another student's problem identifiers.
+    t.exercises = t.exercises.map((e) => ({ ...e, problemId: "" }));
+    await db
+      .prepare(
+        "INSERT INTO plan_templates(user_id,id,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",
+      )
+      .bind(user.id, t.id, JSON.stringify(t), now())
+      .run();
+    return Response.json({ template: t });
+  }
+  const templateDelete = path.match(/^\/api\/templates\/([a-zA-Z0-9_-]+)$/);
+  if (templateDelete && request.method === "DELETE") {
+    await db
+      .prepare("DELETE FROM plan_templates WHERE user_id=? AND id=?")
+      .bind(user.id, templateDelete[1])
+      .run();
+    return Response.json({ ok: true });
+  }
   if (path === "/api/invites/accept" && request.method === "POST") {
     const b = z
       .object({ token: z.string().regex(/^[a-f0-9]{64}$/) })
@@ -239,7 +331,7 @@ export async function api(request: Request, env: Env): Promise<Response> {
     });
   }
   if (section === "document" && request.method === "PUT") {
-    if (request.headers.get("X-Fitness-Client") !== "3")
+    if (request.headers.get("X-Fitness-Client") !== "4")
       return apiError(
         "网站已升级，请先复制保留当前填写，再刷新网页后保存，避免旧页面覆盖新记录",
         409,
@@ -251,8 +343,16 @@ export async function api(request: Request, env: Env): Promise<Response> {
         mutationId: id,
         action: z.string().min(1).max(100),
         legacy: z.array(z.unknown()).max(5000).optional(),
+        restore: z
+          .object({
+            version: z.number().int().positive(),
+            key: z.string().min(1).max(400),
+          })
+          .optional(),
       })
       .parse(await body(request));
+    if (b.restore && space.role !== "owner")
+      return apiError("只有本人可以恢复历史记录", 403);
     if (b.legacy && space.role !== "owner")
       return apiError("只有本人可以导入原版备份", 403);
     const legacy = b.legacy
@@ -267,6 +367,7 @@ export async function api(request: Request, env: Env): Promise<Response> {
         version: b.version,
         action: b.action,
         legacy,
+        restore: b.restore,
       }),
     );
     const replay = async () => {
@@ -315,9 +416,34 @@ export async function api(request: Request, env: Env): Promise<Response> {
           since: new Date().toISOString().slice(0, 10),
         };
     }
+    let ruleBefore = systemSchema.parse(JSON.parse(current.payload));
     try {
+      if (b.restore) {
+        const row = await db
+          .prepare("SELECT payload FROM changes WHERE space_id=? AND version=?")
+          .bind(spaceId, b.restore.version)
+          .first<{ payload: string }>();
+        if (!row) return apiError("历史版本不存在", 404);
+        const past = systemSchema.parse(JSON.parse(row.payload));
+        b.payload = systemSchema.parse(
+          recoverHistory(ruleBefore, past, b.restore.key),
+        );
+        if (b.restore.key.startsWith("session:")) {
+          const restored = past.sessions.find(
+            (x) => x.id === b.restore!.key.slice(8),
+          );
+          if (restored?.status === "已完成")
+            ruleBefore = {
+              ...ruleBefore,
+              sessions: [
+                ...ruleBefore.sessions.filter((x) => x.id !== restored.id),
+                restored,
+              ],
+            };
+        }
+      }
       b.payload = reconcileSystem(
-        systemSchema.parse(JSON.parse(current.payload)),
+        ruleBefore,
         b.payload,
         today(b.payload.profile.timeZone ?? "Asia/Shanghai"),
         b.legacy !== undefined,
@@ -385,12 +511,33 @@ export async function api(request: Request, env: Env): Promise<Response> {
       409,
     );
   }
+  if (section === "history" && target && request.method === "GET") {
+    const version = z.coerce.number().int().positive().parse(target);
+    const row = await db
+      .prepare(
+        "SELECT payload,version,action,created_at FROM changes WHERE space_id=? AND version=?",
+      )
+      .bind(spaceId, version)
+      .first<{
+        payload: string;
+        version: number;
+        action: string;
+        created_at: string;
+      }>();
+    if (!row) return apiError("历史版本不存在", 404);
+    return Response.json({ ...row, payload: JSON.parse(row.payload) });
+  }
   if (section === "history" && request.method === "GET") {
+    const beforeVersion = z.coerce
+      .number()
+      .int()
+      .positive()
+      .parse(url.searchParams.get("before") || "2147483647");
     const rows = await db
       .prepare(
-        "SELECT c.version,c.action,c.created_at,u.name AS actor_name FROM changes c JOIN user u ON u.id=c.actor_id WHERE c.space_id=? ORDER BY c.version DESC LIMIT 50",
+        "SELECT c.version,c.action,c.created_at,u.name AS actor_name FROM changes c JOIN user u ON u.id=c.actor_id WHERE c.space_id=? AND c.version<? ORDER BY c.version DESC LIMIT 50",
       )
-      .bind(spaceId)
+      .bind(spaceId, beforeVersion)
       .all();
     return Response.json({ history: rows.results });
   }

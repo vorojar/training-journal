@@ -31,7 +31,7 @@ import { SetRecorder } from "./sets";
 import { useDraftState, useDraft, DraftNotice } from "./drafts";
 import { EditorNavigationContext } from "./hash-navigation";
 type Save = (s: System) => Promise<void>;
-function Editor({
+export function Editor({
   title,
   children,
   onClose,
@@ -1033,30 +1033,39 @@ export function DailyEditor({
 }
 export function ReviewEditor({
   s,
+  review,
   save,
   close,
 }: {
   s: System;
+  review?: Review;
   save: Save;
   close: () => void;
 }) {
-  const [r, set] = useDraftState<Review>("review", {
-    id: uid(),
-    date: today(),
-    coach: s.profile.coach,
-    conclusion: "",
-    nextDate: shiftDate(today(), 14),
-    action: "继续原计划",
-    planIds: s.plans.filter((p) => p.status === "已发布").map((p) => p.id),
-    changes: s.problems.map((p) => ({
-      problemId: p.id,
-      name: p.name,
-      before: p.severity,
-      after: p.severity,
-      measurement: p.measurement,
-      method: p.retest,
-    })),
-  });
+  const [r, set] = useDraftState<Review>(
+    "review",
+    review
+      ? structuredClone(review)
+      : {
+          id: uid(),
+          date: today(),
+          coach: s.profile.coach,
+          conclusion: "",
+          nextDate: shiftDate(today(), 14),
+          action: "继续原计划",
+          planIds: s.plans
+            .filter((p) => p.status === "已发布")
+            .map((p) => p.id),
+          changes: s.problems.map((p) => ({
+            problemId: p.id,
+            name: p.name,
+            before: p.severity,
+            after: p.severity,
+            measurement: p.measurement,
+            method: p.retest,
+          })),
+        },
+  );
   return (
     <Editor
       title="定期复查与问题复评"
@@ -1066,7 +1075,7 @@ export function ReviewEditor({
           throw new Error("请选择本次需要调整的方案，或选择继续原计划");
         if (r.nextDate && r.nextDate <= r.date)
           throw new Error("下次复查日期应晚于本次复查。");
-        if (s.reviews.some((x) => x.date > r.date))
+        if (!review && s.reviews.some((x) => x.date > r.date))
           throw new Error("请按时间顺序记录复查，避免旧结果覆盖最新分级。");
         if (!r.conclusion.trim() || !r.coach.trim())
           throw new Error("请填写复查人和复查结论。");
@@ -1076,30 +1085,37 @@ export function ReviewEditor({
           );
         await save({
           ...s,
-          reviews: [r, ...s.reviews],
+          reviews: [r, ...s.reviews.filter((x) => x.id !== r.id)],
           assessment:
-            r.action === "进一步评估"
+            !review && r.action === "进一步评估"
               ? { ...s.assessment, confirmed: false }
               : s.assessment,
-          problems: s.problems.map((p) => {
-            const c = r.changes.find((x) => x.problemId === p.id);
-            return c
-              ? {
-                  ...p,
-                  severity: c.after,
-                  measurement: c.measurement,
-                  basis: [
-                    p.basis,
-                    `${r.date} 复查：${c.measurement}；方法：${c.method}`,
-                  ]
-                    .filter(Boolean)
-                    .join("\n"),
-                }
-              : p;
-          }),
+          problems: review
+            ? s.problems
+            : s.problems.map((p) => {
+                const c = r.changes.find((x) => x.problemId === p.id);
+                return c
+                  ? {
+                      ...p,
+                      severity: c.after,
+                      measurement: c.measurement,
+                      basis: [
+                        p.basis,
+                        `${r.date} 复查：${c.measurement}；方法：${c.method}`,
+                      ]
+                        .filter(Boolean)
+                        .join("\n"),
+                    }
+                  : p;
+              }),
         });
       }}
     >
+      {review && (
+        <p className="callout">
+          纠正复查原文不会追溯重排日历或改写最新问题分级；需调整训练时请新建复查。
+        </p>
+      )}
       <div className="form-grid">
         <Input
           label="复查日期"

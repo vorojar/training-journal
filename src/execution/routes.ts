@@ -7,6 +7,10 @@ export const pages = {
   calendar: "训练日历",
   daily: "每日记录",
   reviews: "复查与调整",
+  records: "记录与恢复",
+  measurements: "量化评估",
+  coach: "教练工作台",
+  templates: "方案模板",
   settings: "资料与备份",
 } as const;
 export type Page = keyof typeof pages;
@@ -17,7 +21,11 @@ export type Edit =
   | { type: "plan"; id?: string; adjust?: boolean; reviewId?: string }
   | { type: "session"; id: string }
   | { type: "daily"; id?: string }
-  | { type: "review" };
+  | { type: "review"; id?: string }
+  | { type: "measurement"; id?: string }
+  | { type: "history"; id: string }
+  | { type: "archive"; id: string; kind: string }
+  | { type: "template"; id: string };
 export type CalendarLocation = { month: string; date: string };
 export type Route = { page: Page; calendar: CalendarLocation; edit?: Edit };
 const idPattern = /^[a-zA-Z0-9_-]{1,200}$/;
@@ -78,6 +86,22 @@ export function parseRoute(hash: string, day = today()): Route {
     route.edit = { type: "daily", ...(validId ? { id } : {}) };
   else if (kind === "review" && id === "new" && parts.length === 2)
     route.edit = { type: "review" };
+  if (kind === "review" && validId && parts.length === 2)
+    route.edit = { type: "review", id };
+  if (kind === "measurement" && parts.length === 2 && (id === "new" || validId))
+    route.edit = { type: "measurement", ...(validId ? { id } : {}) };
+  if (kind === "history" && validId && /^\d+$/.test(id) && parts.length === 2)
+    route.edit = { type: "history", id };
+  if (kind === "template" && validId && parts.length === 2)
+    route.edit = { type: "template", id };
+  if (
+    kind === "archive" &&
+    validId &&
+    action &&
+    idPattern.test(action) &&
+    parts.length === 3
+  )
+    route.edit = { type: "archive", kind: id, id: action };
   return route;
 }
 export function formatRoute(route: Route): string {
@@ -105,7 +129,19 @@ export function formatRoute(route: Route): string {
         suffix = "/entry/" + (e.id || "new");
         break;
       case "review":
-        suffix = "/review/new";
+        suffix = "/review/" + (e.id || "new");
+        break;
+      case "measurement":
+        suffix = "/measurement/" + (e.id || "new");
+        break;
+      case "history":
+        suffix = "/history/" + e.id;
+        break;
+      case "template":
+        suffix = "/template/" + e.id;
+        break;
+      case "archive":
+        suffix = "/archive/" + e.kind + "/" + e.id;
         break;
     }
   const params = new URLSearchParams();
@@ -137,6 +173,14 @@ export function missingTarget(s: System, e: Edit): string | undefined {
     if (session.status === "已取消")
       return "这堂训练已被方案调整取消，请查看最新日历";
   }
+  if (
+    e.type === "measurement" &&
+    e.id &&
+    !s.measurements?.some((x) => x.id === e.id)
+  )
+    return "测量记录不存在";
+  if (e.type === "review" && e.id && !s.reviews.some((x) => x.id === e.id))
+    return "复查记录不存在";
   if (e.type === "daily" && e.id && !s.daily.some((x) => x.id === e.id))
     return "此浏览器没有链接中的每日记录";
 }
