@@ -15,7 +15,7 @@ import {
   nextSet,
   recordSession,
 } from "./phone-flow";
-import { AssessmentEditor, PlanEditor, Editor } from "./editors";
+import { AssessmentEditor, PlanEditor, Editor, SessionEditor } from "./editors";
 const e: Exercise = {
   id: "e",
   name: "深蹲",
@@ -192,4 +192,31 @@ describe("手机完整执行流程", () => {
     expect(html).toContain("保存进度");
     expect(html).toContain("完成训练");
   });
+});
+
+it("训练方法与记录按动作放在一起，正常训练不再重复选择完成状态", () => {
+  const v = session();
+  v.exercises.push({ ...e, id: "second", name: "划船", method: "划船方法" });
+  const html = renderToStaticMarkup(
+    <SessionEditor
+      s={ready()}
+      session={v}
+      save={async () => {}}
+      close={() => {}}
+    />,
+  );
+  expect(html).toMatch(
+    /控制动作[\s\S]*添加第一组[\s\S]*划船方法[\s\S]*添加第一组/,
+  );
+  expect(html).not.toContain('aria-label="完成情况"');
+  expect(html).toContain("跳过本次训练");
+  const completed = renderToStaticMarkup(
+    <SessionEditor
+      s={ready()}
+      session={{ ...v, status: "已完成" }}
+      save={async () => {}}
+      close={() => {}}
+    />,
+  );
+  expect(completed).toContain('aria-label="完成情况"');
 });

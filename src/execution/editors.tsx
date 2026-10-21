@@ -248,9 +248,7 @@ export function AssessmentEditor({
         await save({ ...s, assessment: a });
       }}
     >
-      <p className="muted">
-        无相关情况填“无”，未核实先保存。
-      </p>
+      <p className="muted">无相关情况填“无”，未核实先保存。</p>
       <div className="form-grid">
         <Input
           label="评估日期"
@@ -784,13 +782,19 @@ export function SessionEditor({
     await save(next);
     saved.current = true;
   };
-  const closeEditor = () => saved.current && afterSave ? afterSave(v.date) : close();
+  const closeEditor = () =>
+    saved.current && afterSave ? afterSave(v.date) : close();
+  const readOnly =
+    coachMode || !!(s.trainingHold?.active && v.status !== "已完成");
   const details = (
     <>
       <div className="callout">
         方案 v{v.planVersion} · {v.time} · {v.minutes} 分钟
-        <p>{v.cautions || "教练尚未补充专属注意事项"}</p>
+        {v.cautions && <p>{v.cautions}</p>}
       </div>
+      {!readOnly && (
+        <p className="muted">逐组记录：自重负重填0；计时动作填秒数。</p>
+      )}
       {v.exercises.map((e, i) => (
         <article className="action-detail" key={e.id}>
           <h3>
@@ -808,6 +812,14 @@ export function SessionEditor({
               查看示范视频
             </a>
           )}
+          <SetRecorder
+            session={v}
+            exercise={e}
+            readOnly={readOnly}
+            onChange={
+              readOnly ? undefined : (setLogs) => set({ ...v, setLogs })
+            }
+          />
         </article>
       ))}
     </>
@@ -816,15 +828,23 @@ export function SessionEditor({
     const content = (
       <>
         {details}
-        {!!v.setLogs?.length && <SetRecorder session={v} readOnly />}
         <dl>
-          {([
-            ["完成情况", v.status], ["补充记录", v.actual],
-            ["费力程度", v.effort], ["训练反应", v.symptoms],
-            ["次日恢复", v.nextDay],
-          ] as [string, string | number | null][])
+          {(
+            [
+              ["完成情况", v.status],
+              ["补充记录", v.actual],
+              ["费力程度", v.effort],
+              ["训练反应", v.symptoms],
+              ["次日恢复", v.nextDay],
+            ] as [string, string | number | null][]
+          )
             .filter(([, value]) => value !== "" && value !== null)
-            .map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            .map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
         </dl>
       </>
     );
@@ -892,20 +912,37 @@ export function SessionEditor({
       secondaryLabel={v.status === "待完成" ? "保存进度" : undefined}
       onSecondarySave={() => persist(recordSession(s, v, "待完成"))}
       onSave={() =>
-        persist(recordSession(s, v, v.status === "已跳过" ? "已跳过" : "已完成"))
+        persist(
+          recordSession(s, v, v.status === "已跳过" ? "已跳过" : "已完成"),
+        )
       }
     >
       {details}
-      <SetRecorder session={v} onChange={(setLogs) => set({ ...v, setLogs })} />
       <div className="form-grid">
-        <Select
-          label="完成情况"
-          value={v.status}
-          options={["待完成", "已完成", "已跳过"]}
-          onChange={(value) =>
-            set({ ...v, status: value as Session["status"] })
-          }
-        />
+        {session.status === "待完成" ? (
+          <label className="session-skip">
+            <input
+              type="checkbox"
+              checked={v.status === "已跳过"}
+              onChange={(event) =>
+                set({
+                  ...v,
+                  status: event.target.checked ? "已跳过" : "待完成",
+                })
+              }
+            />
+            跳过本次训练
+          </label>
+        ) : (
+          <Select
+            label="完成情况"
+            value={v.status}
+            options={["待完成", "已完成", "已跳过"]}
+            onChange={(value) =>
+              set({ ...v, status: value as Session["status"] })
+            }
+          />
+        )}
         <Input
           label="训练费力程度（0—10）"
           type="number"
@@ -923,17 +960,26 @@ export function SessionEditor({
       </div>
       <details open={!!(v.actual || v.nextDay)}>
         <summary>补充记录（可选）</summary>
-        <TextArea label="实际完成内容" hint="有逐组记录可留空" value={v.actual}
-          onChange={(value) => set({ ...v, actual: value })} />
-        <TextArea label="次日恢复与不适" value={v.nextDay}
-          onChange={(value) => set({ ...v, nextDay: value })} />
+        <TextArea
+          label="实际完成内容"
+          hint="有逐组记录可留空"
+          value={v.actual}
+          onChange={(value) => set({ ...v, actual: value })}
+        />
+        <TextArea
+          label="次日恢复与不适"
+          value={v.nextDay}
+          onChange={(value) => set({ ...v, nextDay: value })}
+        />
       </details>
-      {v.status === "待完成" && <Button
-        secondary
-        onClick={() => set({ ...v, date: shiftDate(v.date, 1) })}
-      >
-        顺延一天
-      </Button>}
+      {v.status === "待完成" && (
+        <Button
+          secondary
+          onClick={() => set({ ...v, date: shiftDate(v.date, 1) })}
+        >
+          顺延一天
+        </Button>
+      )}
     </Editor>
   );
 }
@@ -1224,9 +1270,7 @@ export function ReviewEditor({
             ))}
         </div>
       )}
-      <p className="muted">
-        保存后更新分级；调整日历需继续确认方案。
-      </p>
+      <p className="muted">保存后更新分级；调整日历需继续确认方案。</p>
     </Editor>
   );
 }
@@ -1263,11 +1307,21 @@ export function AssessmentConfirmation({
       </dl>
       {s.problems.map((p) => (
         <p key={p.id}>
-          <strong>{p.name} · {p.severity}</strong><br />
-          依据：{p.basis}<br />
-          基线：{p.measurement} · 目标：{p.goal}<br />
+          <strong>
+            {p.name} · {p.severity}
+          </strong>
+          <br />
+          依据：{p.basis}
+          <br />
+          基线：{p.measurement} · 目标：{p.goal}
+          <br />
           复查：{p.retest}
-          {p.cautions && <><br />注意：{p.cautions}</>}
+          {p.cautions && (
+            <>
+              <br />
+              注意：{p.cautions}
+            </>
+          )}
         </p>
       ))}
       <h3>个人注意事项</h3>

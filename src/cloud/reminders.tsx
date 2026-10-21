@@ -1,17 +1,9 @@
-import { Bell } from "lucide-react";
+import { Bell, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button, Section } from "../execution/ui";
 import { today, reviewProgress, type System } from "../execution/domain";
 import { request, send, type CloudConnection } from "./client";
-type Note = {
-  id: string;
-  space_id: string | null;
-  kind: string;
-  title: string;
-  href: string;
-  created_at: string;
-  read_at: string | null;
-};
+import { notificationGroups, type Note } from "./notification-groups";
 type Preferences = {
   timeZone: string;
   training: boolean;
@@ -78,7 +70,11 @@ export function UpdateBell({
         void request<{ notifications: Note[] }>("/api/notifications")
           .then((r) => {
             if (live)
-              setCount(r.notifications.filter((n) => !n.read_at).length);
+              setCount(
+                notificationGroups(r.notifications).filter(
+                  (n) => n.unreadIds.length,
+                ).length,
+              );
           })
           .catch(() => {});
     };
@@ -198,142 +194,155 @@ export function NotificationCenter({ cloud }: { cloud: CloudConnection }) {
   }
   return (
     <>
-      <Section title="提醒设置" description="将训练、复查和更新推送到此设备。">
-        <div className="reminder-options">
-          {(["training", "review", "updates"] as const).map((field, i) => (
-            <label className="checkline" key={field}>
-              <input
-                type="checkbox"
-                checked={prefs[field]}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, [field]: e.target.checked })
-                }
-              />
-              {["训练提醒", "复查到期提醒", "教练／学员资料更新"][i]}
-            </label>
-          ))}
-          <label className="field">
-            <span>训练提前提醒</span>
-            <select
-              aria-label="训练提前提醒"
-              value={prefs.lead}
-              onChange={(e) =>
-                setPrefs({
-                  ...prefs,
-                  lead: Number(e.target.value) as Preferences["lead"],
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {status && <p role="status">{status}</p>}
+
+      <Section title="通知">
+        {!notes.length ? (
+          <p className="muted">暂时没有通知。</p>
+        ) : (
+          notificationGroups(notes).map(({ note: n, unreadIds, count }) => (
+            <button
+              className="notification-row"
+              key={n.id}
+              disabled={busy}
+              onClick={() =>
+                void perform(async () => {
+                  await Promise.all(
+                    unreadIds.map((id) =>
+                      send("/api/notifications/read", { id }),
+                    ),
+                  );
+                  if (n.space_id && n.space_id !== cloud.space.id)
+                    cloud.select(n.space_id);
+                  location.hash = n.href;
                 })
               }
             >
-              {[5, 15, 30, 60].map((n) => (
-                <option key={n} value={n}>
-                  {n}分钟
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>提醒时区</span>
-            <input
-              aria-label="提醒时区"
-              value={prefs.timeZone}
-              onChange={(e) => setPrefs({ ...prefs, timeZone: e.target.value })}
-            />
-          </label>
-        </div>
-        <div className="backup-actions">
-          <Button
-            secondary
-            disabled={busy}
-            onClick={() =>
-              void perform(async () => {
-                await send("/api/notifications/preferences", prefs, "PUT");
-                setStatus("提醒偏好已保存");
-              })
-            }
-          >
-            保存提醒偏好
-          </Button>
-          <Button disabled={busy} onClick={() => void perform(enable)}>
-            {subscribed ? "重新检查系统提醒" : "开启此设备系统提醒"}
-          </Button>
-          {subscribed && (
+              <span>
+                <strong>
+                  {n.title}
+                  {unreadIds.length > 0 ? " · 未读" : ""}
+                </strong>
+                <small>
+                  {new Date(n.created_at).toLocaleString()}
+                  {count > 1 ? ` · ${count}次更新` : ""}
+                </small>
+              </span>
+              <ChevronRight size={18} />
+            </button>
+          ))
+        )}
+      </Section>
+      <details className="settings-disclosure">
+        <summary>提醒设置</summary>
+        <Section>
+          <div className="reminder-options">
+            {(["training", "review", "updates"] as const).map((field, i) => (
+              <label className="checkline" key={field}>
+                <input
+                  type="checkbox"
+                  checked={prefs[field]}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, [field]: e.target.checked })
+                  }
+                />
+                {["训练提醒", "复查到期提醒", "教练／学员资料更新"][i]}
+              </label>
+            ))}
+            <label className="field">
+              <span>训练提前提醒</span>
+              <select
+                aria-label="训练提前提醒"
+                value={prefs.lead}
+                onChange={(e) =>
+                  setPrefs({
+                    ...prefs,
+                    lead: Number(e.target.value) as Preferences["lead"],
+                  })
+                }
+              >
+                {[5, 15, 30, 60].map((n) => (
+                  <option key={n} value={n}>
+                    {n}分钟
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>提醒时区</span>
+              <input
+                aria-label="提醒时区"
+                value={prefs.timeZone}
+                onChange={(e) =>
+                  setPrefs({ ...prefs, timeZone: e.target.value })
+                }
+              />
+            </label>
+          </div>
+          <div className="backup-actions">
             <Button
               secondary
               disabled={busy}
               onClick={() =>
                 void perform(async () => {
-                  const r = await navigator.serviceWorker.getRegistration("/");
-                  const sub = await r?.pushManager.getSubscription();
-                  if (sub) {
-                    await send("/api/notifications/unsubscribe", {
-                      endpoint: sub.endpoint,
-                    });
-                    await sub.unsubscribe();
-                  }
-                  setSubscribed(false);
-                  setStatus("此设备系统提醒已关闭");
+                  await send("/api/notifications/preferences", prefs, "PUT");
+                  setStatus("提醒偏好已保存");
                 })
               }
             >
-              关闭此设备提醒
+              保存提醒偏好
             </Button>
-          )}
-          <Button
-            secondary
-            disabled={busy}
-            onClick={() =>
-              void perform(async () => {
-                await send("/api/notifications/test", {});
-                setStatus(
-                  "测试提醒已写入站内中心；已开启系统提醒的设备会尝试接收推送",
-                );
-              })
-            }
-          >
-            发送测试提醒
-          </Button>
-        </div>
-        <p className="muted">
-          iPhone／iPad：先在 Safari
-          将网站添加到主屏幕，再从主屏幕打开并开启提醒。系统提醒由服务器每5分钟检查一次。
-        </p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        {status && <p role="status">{status}</p>}
-      </Section>
-      <Section title="通知中心" description="点击通知进入对应空间。">
-        {!notes.length ? (
-          <p className="muted">暂时没有通知。</p>
-        ) : (
-          notes.map((n) => (
-            <div className="access-row" key={n.id}>
-              <div>
-                <strong>
-                  {n.title}
-                  {!n.read_at ? " · 未读" : ""}
-                </strong>
-                <small>{new Date(n.created_at).toLocaleString()}</small>
-              </div>
+            <Button disabled={busy} onClick={() => void perform(enable)}>
+              {subscribed ? "重新检查系统提醒" : "开启此设备系统提醒"}
+            </Button>
+            {subscribed && (
               <Button
                 secondary
+                disabled={busy}
                 onClick={() =>
                   void perform(async () => {
-                    await send("/api/notifications/read", { id: n.id });
-                    if (n.space_id && n.space_id !== cloud.space.id)
-                      cloud.select(n.space_id);
-                    location.hash = n.href;
+                    const r =
+                      await navigator.serviceWorker.getRegistration("/");
+                    const sub = await r?.pushManager.getSubscription();
+                    if (sub) {
+                      await send("/api/notifications/unsubscribe", {
+                        endpoint: sub.endpoint,
+                      });
+                      await sub.unsubscribe();
+                    }
+                    setSubscribed(false);
+                    setStatus("此设备系统提醒已关闭");
                   })
                 }
               >
-                查看
+                关闭此设备提醒
               </Button>
-            </div>
-          ))
-        )}
-      </Section>
+            )}
+            <Button
+              secondary
+              disabled={busy}
+              onClick={() =>
+                void perform(async () => {
+                  await send("/api/notifications/test", {});
+                  setStatus(
+                    "测试提醒已写入站内中心；已开启系统提醒的设备会尝试接收推送",
+                  );
+                })
+              }
+            >
+              发送测试提醒
+            </Button>
+          </div>
+          <p className="muted">
+            iPhone／iPad：先在 Safari 添加到主屏幕后打开，才能开启系统提醒。
+          </p>
+        </Section>
+      </details>
     </>
   );
 }

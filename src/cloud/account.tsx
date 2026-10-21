@@ -96,22 +96,6 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
             退出登录
           </Button>
         </div>
-        {cloud.spaces.length > 1 && (
-          <label className="field">
-            <span>切换本人／学员空间</span>
-            <select
-              aria-label="切换健身空间"
-              value={cloud.space.id}
-              onChange={(e) => cloud.select(e.target.value)}
-            >
-              {cloud.spaces.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.role === "owner" ? "我的空间" : "学员：" + s.owner_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -130,10 +114,7 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
           )}
         </summary>
         {cloud.space.role === "owner" ? (
-          <Section
-            title="教练邀请与授权"
-            description="邀请链接48小时内有效，只能由指定登录邮箱使用。教练接受后，请再次核对身份并确认授权。"
-          >
+          <Section description="链接48小时内有效，仅限指定邮箱；接受后需你确认授权。">
             <form
               className="invite-form"
               onSubmit={(e) => {
@@ -163,7 +144,7 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
             </form>
             {link && (
               <div className="callout">
-                <strong>请将此链接发给你的教练</strong>
+                <strong>发给教练</strong>
                 <textarea aria-label="教练邀请链接" readOnly value={link} />
                 <Button
                   secondary
@@ -176,17 +157,11 @@ export default function CloudAccount({ cloud }: { cloud: CloudConnection }) {
                 >
                   {copied ? "已复制" : "复制邀请链接"}
                 </Button>
-                <p>
-                  链接只显示这一次。不要公开发布；教练接受后，还需你在下方确认。
-                </p>
+                <p>链接仅显示一次，请勿公开。</p>
               </div>
             )}
             <h3>已加入与待确认的教练</h3>
-            {!members.length && (
-              <p className="muted">
-                还没有教练加入，你的健康资料目前只对本人开放。
-              </p>
-            )}
+            {!members.length && <p className="muted">暂无教练</p>}
             {members.map((m) => (
               <div className="access-row" key={m.user_id}>
                 <div>

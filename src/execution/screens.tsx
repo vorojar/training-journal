@@ -135,7 +135,9 @@ export function Overview({ s, edit, go, owner = true }: ScreenProps) {
             edit({ type: "daily", id: s.daily.find((x) => x.date === day)?.id })
           }
         >
-          记录今天的身体状态
+          {s.daily.some((x) => x.date === day)
+            ? "更新今日记录"
+            : "记录今日状态"}
         </Button>
       )}
     </>
@@ -448,14 +450,7 @@ export function AssessmentScreen({ s, edit, owner = true }: ScreenProps) {
           />
         )}
       </Section>
-      <Section
-        title="训练注意事项"
-        action={
-          <LinkButton onClick={() => edit({ type: "assessment" })}>
-            补充注意事项
-          </LinkButton>
-        }
-      >
+      <Section title="训练注意事项">
         <div className="caution-grid">
           <div>
             <h3>个人注意事项</h3>
@@ -564,28 +559,36 @@ export function PlanScreen({ s, edit, go, owner = true }: ScreenProps) {
                       <ChevronRight size={17} />
                     </summary>
                     <div className="exercise-body">
-                      <p>
-                        <b>训练目的：</b>
-                        {e.purpose || "待补充"}
-                        {e.problemId &&
-                          ` · ${s.problems.find((x) => x.id === e.problemId)?.name || ""}`}
-                      </p>
+                      {(e.purpose || e.problemId) && (
+                        <p>
+                          <b>训练目的：</b>
+                          {e.purpose}
+                          {e.problemId &&
+                            ` · ${s.problems.find((x) => x.id === e.problemId)?.name || ""}`}
+                        </p>
+                      )}
                       <p className="preserve">
                         <b>方法与呼吸：</b>
                         {e.method || "待教练填写"}
                       </p>
-                      <p>
-                        <b>节奏：</b>
-                        {e.tempo || "待补充"}
-                      </p>
-                      <p>
-                        <b>注意事项：</b>
-                        {e.cautions || "参照个人训练边界"}
-                      </p>
-                      <p>
-                        <b>替代动作：</b>
-                        {e.alternative || "待教练补充"}
-                      </p>
+                      {e.tempo && (
+                        <p>
+                          <b>节奏：</b>
+                          {e.tempo}
+                        </p>
+                      )}
+                      {e.cautions && (
+                        <p>
+                          <b>注意事项：</b>
+                          {e.cautions}
+                        </p>
+                      )}
+                      {e.alternative && (
+                        <p>
+                          <b>替代动作：</b>
+                          {e.alternative}
+                        </p>
+                      )}
                       {e.video && (
                         <a href={e.video} target="_blank" rel="noreferrer">
                           观看动作示范
@@ -596,24 +599,13 @@ export function PlanScreen({ s, edit, go, owner = true }: ScreenProps) {
                 ))}
               </div>
             ) : (
-              <Empty
-                title="尚未添加训练动作"
-                description="点击编辑草稿，由教练逐项填写。"
-              />
-            )}
-            {p.status === "已发布" && (
-              <LinkButton onClick={() => go("训练日历")}>
-                查看这个周期的日历与完成情况
-              </LinkButton>
+              <Empty title="尚未添加训练动作" />
             )}
           </Section>
         ))
       ) : (
         <Section title="教练制定的个人训练方案">
-          <Empty
-            title="尚未制定训练方案"
-            description="请教练根据评估制定。"
-          />
+          <Empty title="尚未制定训练方案" description="请教练根据评估制定。" />
         </Section>
       )}
     </>
@@ -622,7 +614,6 @@ export function PlanScreen({ s, edit, go, owner = true }: ScreenProps) {
 export function CalendarScreen({
   s,
   edit,
-  go,
   calendar,
   setCalendar,
   owner = true,
@@ -648,10 +639,7 @@ export function CalendarScreen({
   };
   return (
     <>
-      <Section
-        title="训练周期日历"
-        action={<Button onClick={() => go("教练方案")}>管理训练方案</Button>}
-      >
+      <Section title="训练周期日历">
         <div className="calendar-toolbar">
           <div>
             <button
@@ -747,14 +735,16 @@ export function CalendarScreen({
             <i className="gray-dot" />
             跳过／取消
           </span>
-          <label>
-            <input
-              type="checkbox"
-              checked={showCancelled}
-              onChange={(e) => setShow(e.target.checked)}
-            />
-            显示调整前取消的课次
-          </label>
+          {s.sessions.some((x) => x.status === "已取消") && (
+            <label>
+              <input
+                type="checkbox"
+                checked={showCancelled}
+                onChange={(e) => setShow(e.target.checked)}
+              />
+              显示调整前取消的课次
+            </label>
+          )}
         </div>
       </Section>
       <Section title={`${selected} 的训练`}>
@@ -792,10 +782,7 @@ export function CalendarScreen({
             )}
           </div>
         ) : (
-          <Empty
-            title="当天没有安排训练"
-            description="训练安排由已发布方案生成，周期调整后这里会同步更新。"
-          />
+          <Empty title="当天没有安排训练" />
         )}
       </Section>
     </>
@@ -804,20 +791,24 @@ export function CalendarScreen({
 export function DailyScreen({ s, edit, owner = true }: ScreenProps) {
   return (
     <>
-      <div className="page-command">
-        <Button
-          disabled={!owner}
-          onClick={() =>
-            edit({
-              type: "daily",
-              id: s.daily.find((x) => x.date === today(s.profile.timeZone))?.id,
-            })
-          }
-        >
-          <Plus size={17} />
-          记录今天
-        </Button>
-      </div>
+      {owner && (
+        <div className="page-command">
+          <Button
+            onClick={() =>
+              edit({
+                type: "daily",
+                id: s.daily.find((x) => x.date === today(s.profile.timeZone))
+                  ?.id,
+              })
+            }
+          >
+            <Plus size={17} />
+            {s.daily.some((x) => x.date === today(s.profile.timeZone))
+              ? "更新今日记录"
+              : "记录今天"}
+          </Button>
+        </div>
+      )}
       {s.daily.some((r) =>
         [r.weight, r.bodyFat, r.waist, r.sleep, r.heartRate, r.steps].some(
           (v) => v !== null,
@@ -971,8 +962,7 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
                       })}
                       <p className="muted">
                         待处理 {progress.remaining.length}/
-                        {progress.plans.length}{" "}
-                        份方案。
+                        {progress.plans.length} 份方案。
                       </p>
                     </div>
                   ) : (
@@ -984,9 +974,7 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
             );
           })
         ) : (
-          <Empty
-            title="还没有复查记录"
-          />
+          <Empty title="还没有复查记录" />
         )}
       </Section>
       <Section
@@ -1019,9 +1007,7 @@ export function ReviewScreen({ s, edit, go, owner = true }: ScreenProps) {
             </article>
           ))
         ) : (
-          <Empty
-            title="暂无调整记录"
-          />
+          <Empty title="暂无调整记录" />
         )}
       </Section>
     </>

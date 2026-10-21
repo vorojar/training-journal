@@ -2253,10 +2253,6 @@ dialog::backdrop {
   margin-right: 8px;
   margin-bottom: 5px;
 }
-.set-exercise {
-  padding: 16px 0;
-  border-bottom: 1px solid #e3e8ef;
-}
 .set-row {
   display: grid;
   grid-template-columns: 60px repeat(3, minmax(0, 1fr)) 70px 42px;
@@ -2985,4 +2981,42 @@ dialog::backdrop {
   .auth-intro {
     padding-bottom: 0;
   }
+}
+
+.session-skip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 16px;
+}
+.session-skip input {
+  width: 18px;
+  height: 18px;
+}
+
+.notification-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  font-size: 16px;
+}
+.notification-row:last-child {
+  border-bottom: 0;
+}
+.notification-row small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.notification-row svg {
+  flex-shrink: 0;
 }

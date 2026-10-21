@@ -482,7 +482,7 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                 </button>
               )}
             </div>
-            {cloud && (
+            {cloud && route.page !== "notifications" && (
               <UpdateBell cloud={cloud} open={() => go("提醒与通知")} />
             )}
             {group !== "settings" && (
@@ -613,12 +613,6 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
           ) : (
             <>
               <div className="settings-links">
-                {cloud && (
-                  <button onClick={() => go("提醒与通知")}>
-                    提醒与通知
-                    <ChevronRight size={18} />
-                  </button>
-                )}
                 <button onClick={() => go("记录与恢复")}>
                   历史与回收站
                   <ChevronRight size={18} />
@@ -638,47 +632,44 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                   }}
                 />
               )}
-              <details className="settings-disclosure">
-                <summary>个人资料</summary>
-                <Section
-                  title="个人资料"
-                  action={
-                    <Button
-                      secondary
-                      disabled={cloud?.space.role === "coach"}
-                      onClick={() => edit({ type: "profile" })}
-                    >
-                      编辑资料
-                    </Button>
-                  }
-                >
-                  <dl>
-                    <div>
-                      <dt>称呼</dt>
-                      <dd>{s.profile.name || "尚未填写"}</dd>
-                    </div>
-                    <div>
-                      <dt>出生年份</dt>
-                      <dd>{s.profile.birthYear ?? "尚未填写"}</dd>
-                    </div>
-                    <div>
-                      <dt>训练目标</dt>
-                      <dd>{s.profile.goal}</dd>
-                    </div>
-                    <div>
-                      <dt>负责教练</dt>
-                      <dd>{s.profile.coach || "尚未填写"}</dd>
-                    </div>
-                  </dl>
-                </Section>
-              </details>
+              {cloud?.space.role !== "coach" ? (
+                <div className="settings-links">
+                  <button onClick={() => edit({ type: "profile" })}>
+                    个人资料
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              ) : (
+                <details className="settings-disclosure">
+                  <summary>个人资料</summary>
+                  <Section>
+                    <dl>
+                      <div>
+                        <dt>称呼</dt>
+                        <dd>{s.profile.name || "尚未填写"}</dd>
+                      </div>
+                      <div>
+                        <dt>出生年份</dt>
+                        <dd>{s.profile.birthYear ?? "尚未填写"}</dd>
+                      </div>
+                      <div>
+                        <dt>训练目标</dt>
+                        <dd>{s.profile.goal}</dd>
+                      </div>
+                      <div>
+                        <dt>负责教练</dt>
+                        <dd>{s.profile.coach || "尚未填写"}</dd>
+                      </div>
+                    </dl>
+                  </Section>
+                </details>
+              )}
               <details className="settings-disclosure">
                 <summary>备份与转移</summary>
                 <Section
-                  title="记录备份与转移"
                   description={
                     cloud
-                      ? "健康资料保存在独立云端空间，不会发布到 GitHub。备份可用于额外保留或迁入旧站资料。"
+                      ? "导出留存，或从旧站导入。"
                       : "健康资料只保存在当前浏览器，不会随网站发布到 GitHub。更换设备或清理浏览器前，请先导出备份。"
                   }
                 >
@@ -701,12 +692,12 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                     个课次、
                     {s.reviews.length} 次复查。
                     {cloud
-                      ? "云端版会同步其他设备的新修改；同时编辑会检查版本，避免覆盖。"
+                      ? ""
                       : "不同设备目前不自动同步；同编号导入保留此浏览器已有版本。"}
                   </p>
                   <p className="muted">
                     {cloud
-                      ? "导入备份会替换当前空间的计划与记录；导入前会让你核对并确认。原版资料会一起保留。"
+                      ? "导入会替换当前空间，需核对确认。"
                       : "“教练填写”表示填写流程，目前没有独立教练账号与远程协作。教练目前需在同一设备一起填写。备份可迁移到新浏览器，不支持双向合并。"}
                   </p>
                   <input
@@ -883,12 +874,18 @@ export default function App({ cloud }: { cloud?: CloudConnection }) {
                   {...shared}
                   session={session}
                   afterSave={(date) => {
-                    if (route.page === "calendar" && date !== route.calendar.date)
-                      navigation.navigate({
-                        ...route,
-                        edit: undefined,
-                        calendar: { month: date.slice(0, 7), date },
-                      }, { replace: true });
+                    if (
+                      route.page === "calendar" &&
+                      date !== route.calendar.date
+                    )
+                      navigation.navigate(
+                        {
+                          ...route,
+                          edit: undefined,
+                          calendar: { month: date.slice(0, 7), date },
+                        },
+                        { replace: true },
+                      );
                     else close();
                   }}
                   coachMode={cloud?.space.role === "coach"}

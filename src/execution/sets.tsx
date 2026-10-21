@@ -4,6 +4,7 @@ import { Button, Input, Section } from "./ui";
 import {
   strengthSeries,
   type Session,
+  type Exercise,
   type System,
   type SetLog,
 } from "./domain";
@@ -11,115 +12,102 @@ export function SetRecorder({
   session,
   onChange,
   readOnly = false,
+  exercise,
 }: {
   session: Session;
   onChange?: (logs: SetLog[]) => void;
   readOnly?: boolean;
+  exercise: Exercise;
 }) {
   const logs = session.setLogs ?? [];
   function update(id: string, patch: Partial<SetLog>) {
     onChange?.(logs.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
+  const e = exercise;
+  const rows = logs.filter((x) => x.exerciseId === e.id);
+  if (readOnly && !rows.length) return null;
   return (
-    <div className="set-recorder">
-      <h3>逐组训练记录</h3>
-      {session.exercises.map((e) => {
-        const rows = logs.filter((x) => x.exerciseId === e.id);
-        return (
-          <section key={e.id} className="set-exercise">
-            <h4>{e.name}</h4>
-            {!rows.length && (
-              <p className="muted">
-                {readOnly
-                  ? "未填写逐组记录"
-                  : "自重负重填0；计时动作填秒数。"}
-              </p>
-            )}
-            {rows.map((row, index) => (
-              <div key={row.id} className="set-row">
-                <strong>第{index + 1}组</strong>
-                {readOnly ? (
-                  <span>
-                    {row.reps !== null
-                      ? `${row.reps}次 · ${row.weight ?? "未填"}kg`
-                      : ""}
-                    {row.seconds !== null ? ` ${row.seconds}秒` : ""} ·{" "}
-                    {row.done ? "已完成" : "未完成"}
-                  </span>
-                ) : (
-                  <>
-                    <Input
-                      label="次数"
-                      ariaLabel={`${e.name}第${index + 1}组次数`}
-                      type="number"
-                      min={1}
-                      max={1000}
-                      step="1"
-                      value={row.reps}
-                      onChange={(v) =>
-                        update(row.id, { reps: v === "" ? null : Number(v) })
-                      }
-                    />
-                    <Input
-                      label="负重（kg）"
-                      ariaLabel={`${e.name}第${index + 1}组负重kg`}
-                      type="number"
-                      min={0}
-                      max={2000}
-                      step="0.5"
-                      value={row.weight}
-                      onChange={(v) =>
-                        update(row.id, { weight: v === "" ? null : Number(v) })
-                      }
-                    />
-                    <Input
-                      label="时长（秒）"
-                      ariaLabel={`${e.name}第${index + 1}组时长秒`}
-                      type="number"
-                      min={1}
-                      max={86400}
-                      step="1"
-                      value={row.seconds}
-                      onChange={(v) =>
-                        update(row.id, { seconds: v === "" ? null : Number(v) })
-                      }
-                    />
-                    <label className="set-check">
-                      <input
-                        type="checkbox"
-                        checked={row.done}
-                        onChange={(event) =>
-                          update(row.id, { done: event.target.checked })
-                        }
-                      />
-                      完成
-                    </label>
-                    <button
-                      type="button"
-                      className="link"
-                      aria-label={`删除${e.name}第${index + 1}组`}
-                      onClick={() =>
-                        onChange?.(logs.filter((x) => x.id !== row.id))
-                      }
-                    >
-                      删除
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            {!readOnly && (
-              <Button
-                secondary
-                onClick={() => onChange?.([...logs, nextSet(e, rows)])}
+    <section className="set-recorder">
+      {rows.map((row, index) => (
+        <div key={row.id} className="set-row">
+          <strong>第{index + 1}组</strong>
+          {readOnly ? (
+            <span>
+              {row.reps !== null
+                ? `${row.reps}次 · ${row.weight ?? "未填"}kg`
+                : ""}
+              {row.seconds !== null ? ` ${row.seconds}秒` : ""} ·{" "}
+              {row.done ? "已完成" : "未完成"}
+            </span>
+          ) : (
+            <>
+              <Input
+                label="次数"
+                ariaLabel={`${e.name}第${index + 1}组次数`}
+                type="number"
+                min={1}
+                max={1000}
+                step="1"
+                value={row.reps}
+                onChange={(v) =>
+                  update(row.id, { reps: v === "" ? null : Number(v) })
+                }
+              />
+              <Input
+                label="负重（kg）"
+                ariaLabel={`${e.name}第${index + 1}组负重kg`}
+                type="number"
+                min={0}
+                max={2000}
+                step="0.5"
+                value={row.weight}
+                onChange={(v) =>
+                  update(row.id, { weight: v === "" ? null : Number(v) })
+                }
+              />
+              <Input
+                label="时长（秒）"
+                ariaLabel={`${e.name}第${index + 1}组时长秒`}
+                type="number"
+                min={1}
+                max={86400}
+                step="1"
+                value={row.seconds}
+                onChange={(v) =>
+                  update(row.id, { seconds: v === "" ? null : Number(v) })
+                }
+              />
+              <label className="set-check">
+                <input
+                  type="checkbox"
+                  checked={row.done}
+                  onChange={(event) =>
+                    update(row.id, { done: event.target.checked })
+                  }
+                />
+                完成
+              </label>
+              <button
+                type="button"
+                className="link"
+                aria-label={`删除${e.name}第${index + 1}组`}
+                onClick={() => onChange?.(logs.filter((x) => x.id !== row.id))}
               >
-                {rows.length ? "再加一组" : "添加第一组"}
-              </Button>
-            )}
-          </section>
-        );
-      })}
-    </div>
+                删除
+              </button>
+            </>
+          )}
+        </div>
+      ))}
+      {!readOnly && (
+        <Button
+          secondary
+          onClick={() => onChange?.([...logs, nextSet(e, rows)])}
+        >
+          {rows.length ? "再加一组" : "添加第一组"}
+        </Button>
+      )}
+    </section>
   );
 }
 export function StrengthProgress({ s }: { s: System }) {
@@ -139,14 +127,9 @@ export function StrengthProgress({ s }: { s: System }) {
   const points = strengthSeries(s, name);
   const max = Math.max(1, ...points.map((p) => p.load));
   return (
-    <Section
-      title="力量进步"
-      description="按同名动作汇总已完成课次的完成组；仅统计记录的外加负重。不同动作版本请使用不同名称。"
-    >
+    <Section title="力量进步" description="同名动作合并统计，负重指外加重量。">
       {!names.length ? (
-        <p className="muted">
-          完成训练并保存逐组记录后，显示动作负重、次数、训练量和趋势。原文字记录不会自动推算成数值。
-        </p>
+        <p className="muted">完成训练并保存逐组记录后显示趋势。</p>
       ) : (
         <>
           <label className="field">
@@ -227,7 +210,7 @@ export function StrengthProgress({ s }: { s: System }) {
                 </table>
               </div>
               <small className="muted">
-                1RM仅由1–10次的正负重完成组估算，用于趋势参考；未安排或要求极限重量测试。计时组不计入力量负重统计。
+                1RM按1–10次负重组估算，仅供趋势参考；计时组不计入。
               </small>
             </>
           ) : (

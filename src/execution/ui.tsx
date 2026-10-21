@@ -31,7 +31,7 @@ export function Section({
   children,
   className = "",
 }: {
-  title: string;
+  title?: string;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -39,13 +39,15 @@ export function Section({
 }) {
   return (
     <section className={"section " + className}>
-      <div className="section-heading">
-        <div>
-          <h2>{title}</h2>
-          {description && <p>{description}</p>}
+      {(title || description || action) && (
+        <div className="section-heading">
+          <div>
+            {title && <h2>{title}</h2>}
+            {description && <p>{description}</p>}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children}
     </section>
   );
