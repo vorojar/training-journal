@@ -219,7 +219,7 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
     <div className="auth-page">
       <section className="auth-intro">
         <a className="auth-brand" href="#overview">
-          <span>循</span>循序
+          <span>循</span><strong>循序</strong>
         </a>
         <h1>
           你的健身计划，
@@ -251,12 +251,12 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
               { email, password, ...(mode === "signup" ? { name } : {}) },
             )
               .then(done)
-              .catch((e) => setError(e.message || "登录失败"))
+              .catch((e) => setError(e instanceof TypeError ? "网络连接失败，请重试" : e.message || (mode === "login" ? "登录失败" : "注册失败")))
               .finally(() => setBusy(false));
           }}
         >
           {mode === "signup" && (
-            <Input label="你的称呼" required value={name} onChange={setName} />
+            <Input label="姓名／称呼" required value={name} onChange={setName} />
           )}
           <Input
             label="邮箱"
@@ -278,7 +278,7 @@ function AuthPage({ done }: { done: () => Promise<void> }) {
             </p>
           )}
           <Button type="submit" disabled={busy}>
-            {busy ? "正在连接…" : mode === "login" ? "登录" : "创建我的空间"}
+            {busy ? (mode === "login" ? "登录中…" : "注册中…") : mode === "login" ? "登录" : "注册"}
           </Button>
         </form>
         <button

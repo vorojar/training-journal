@@ -15,6 +15,15 @@ export type CloudDocument = {
   actor_id?: string;
   legacy?: SavedRecord[];
 };
+const authErrors = new Map([
+  ["INVALID_EMAIL_OR_PASSWORD", "邮箱或密码错误"],
+  ["INVALID_PASSWORD", "密码错误"],
+  ["INVALID_EMAIL", "请填写有效邮箱"],
+  ["PASSWORD_TOO_SHORT", "密码至少6位"],
+  ["PASSWORD_TOO_LONG", "密码最多128位"],
+  ["USER_ALREADY_EXISTS", "该邮箱已注册，请登录"],
+  ["USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", "该邮箱已注册，请登录"],
+]);
 export async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -33,6 +42,7 @@ export async function request<T>(
     .catch(() => ({ error: "服务响应异常，请稍后重试" }));
   if (!response.ok) {
     const message =
+      (path.startsWith("/api/auth/") && (response.status === 429 ? "操作频繁，请稍后重试" : authErrors.get(result.code || result.error?.code))) ||
       result.error?.message ||
       result.error ||
       result.message ||

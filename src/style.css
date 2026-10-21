@@ -101,15 +101,17 @@ strong {
   padding: 24px 12px;
   z-index: 10;
 }
-.brand {
+.brand,
+.auth-brand {
   display: flex;
   align-items: center;
   gap: 12px;
   color: #101828;
-  padding: 0 12px 28px;
   font-size: 24px;
 }
-.brand > span {
+.brand { padding: 0 12px 28px; }
+.brand > span,
+.auth-brand > span {
   display: grid;
   place-items: center;
   background: var(--brand);
@@ -2025,8 +2027,8 @@ dialog::backdrop {
   gap: 7vw;
   align-items: center;
   padding: 8vh 9vw;
-  background: #f5f7fa;
-  color: #162634;
+  background: #fcfdff;
+  color: inherit;
 }
 .auth-intro h1 {
   font-size: clamp(32px, 3.7vw, 58px);
@@ -2035,23 +2037,8 @@ dialog::backdrop {
   margin: 45px 0 24px;
 }
 .auth-intro p {
-  color: #667481;
+  color: var(--muted);
   line-height: 1.9;
-}
-.auth-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: inherit;
-  font-size: 24px;
-  font-weight: 750;
-  text-decoration: none;
-}
-.auth-brand span {
-  padding: 8px 13px;
-  background: var(--brand);
-  color: white;
-  border-radius: 14px;
 }
 .auth-steps {
   margin-top: 42px;
@@ -2062,10 +2049,9 @@ dialog::backdrop {
 }
 .auth-panel {
   background: white;
-  border: 1px solid #e3e8ee;
-  border-radius: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 38px;
-  box-shadow: 0 18px 65px #203c5910;
   max-width: 550px;
   width: 100%;
 }
@@ -2075,7 +2061,7 @@ dialog::backdrop {
   letter-spacing: -0.03em;
 }
 .auth-panel p {
-  color: #637482;
+  color: var(--muted);
   font-size: 14px;
   line-height: 1.8;
 }
@@ -2089,8 +2075,8 @@ dialog::backdrop {
 }
 .auth-panel small {
   display: block;
-  color: #73808b;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 14px;
   line-height: 1.8;
   margin-top: 24px;
 }
@@ -2190,7 +2176,7 @@ dialog::backdrop {
   }
   .auth-panel {
     margin-top: 30px;
-    padding: 25px;
+    padding: 21px 22px;
   }
   .auth-panel h2 {
     font-size: 23px;
